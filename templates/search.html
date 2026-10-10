@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Players · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=10">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Players</h1>
+        <p class="sub">Browse your local DB — search Yahoo to add anyone missing.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnAddPlayerJump">Add player</button>
+        <button type="button" class="btn ghost" id="btnAutoAdd" title="Add top-ranked players missing from DB with full details">
+          <span class="btn-label">Add auto player</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+        <button type="button" class="btn ghost" id="btnRefreshDb">Refresh list</button>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+    <div id="jobBar" class="job-bar" hidden>
+      <div class="job-bar-head">
+        <strong id="jobBarLabel">Job</strong>
+        <span id="jobBarMeta" class="job-bar-meta">—</span>
+      </div>
+      <p id="jobBarText" class="job-bar-text">Starting…</p>
+      <div class="job-bar-track" aria-hidden="true">
+        <div class="job-bar-fill" id="jobBarFill"></div>
+      </div>
+      <p class="job-bar-hint">You can keep browsing the table, open details, and delete players while this runs. Yahoo search/add/refresh wait until it finishes.</p>
+    </div>
+
+    <main class="search-layout players-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>In database</h2>
+            <p class="panel-sub" id="dbSub">Loading…</p>
+          </div>
+          <div class="actions bulk-actions">
+            <label class="show-limit" for="dbShowLimit">
+              <span>Show</span>
+              <select id="dbShowLimit" aria-label="Number of players to show">
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              class="btn primary tiny"
+              id="btnRefreshAll"
+              title="Re-scrape news, game log, season and depth for every player in the DB"
+            >
+              <span class="btn-label">Refresh all</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
+            <button
+              type="button"
+              class="btn ghost tiny"
+              id="btnRefreshSelected"
+              title="Refresh only checked players"
+              disabled
+            >
+              <span class="btn-label">Refresh selected</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
+            <button
+              type="button"
+              class="btn danger tiny"
+              id="btnDeleteSelected"
+              title="Delete only checked players"
+              disabled
+            >
+              <span class="btn-label">Delete selected</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="players-table wide-stats" id="dbTable">
+            <thead>
+              <tr>
+                <th class="col-check">
+                  <input type="checkbox" id="chkSelectAll" title="Select all" aria-label="Select all players">
+                </th>
+                <th class="num">Rank</th>
+                <th>Player</th>
+                <th>Pos</th>
+                <th>Team</th>
+                <th class="num">%Own</th>
+                <th class="num">GP</th>
+                <th class="num">FG%</th>
+                <th class="num">FT%</th>
+                <th class="num">3PT</th>
+                <th class="num">PTS</th>
+                <th class="num">REB</th>
+                <th class="num">AST</th>
+                <th class="num">STL</th>
+                <th class="num">BLK</th>
+                <th class="num">TO</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="dbBody">
+              <tr><td colspan="17" class="muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="findAddSection">
+        <div class="panel-head">
+          <div>
+            <h2>Find &amp; add</h2>
+            <p class="panel-sub">Yahoo search — add players that are not in the DB yet</p>
+          </div>
+        </div>
+        <form id="searchForm" class="search-form" autocomplete="off">
+          <input
+            id="searchInput"
+            type="search"
+            name="q"
+            placeholder="e.g. Durant, Jokic, Maxey…"
+            required
+            minlength="2"
+          >
+          <button type="submit" class="btn primary" id="btnSearch">
+            <span class="btn-label">Search Yahoo</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
+        </form>
+        <div class="table-wrap">
+          <table class="players-table wide-stats" id="searchTable">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Pos</th>
+                <th>Status</th>
+                <th class="num">Rank</th>
+                <th class="num">%Own</th>
+                <th class="num">GP</th>
+                <th class="num">FG%</th>
+                <th class="num">FT%</th>
+                <th class="num">3PT</th>
+                <th class="num">PTS</th>
+                <th class="num">REB</th>
+                <th class="num">AST</th>
+                <th class="num">STL</th>
+                <th class="num">BLK</th>
+                <th class="num">TO</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="searchBody">
+              <tr><td colspan="16" class="muted">Search Yahoo to find players to add.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal" id="detailModal" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-dialog panel detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailName">
+      <div class="panel-head">
+        <div>
+          <h2 id="detailName">Player</h2>
+          <p class="panel-sub" id="detailMeta">—</p>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn ghost tiny fav-btn" id="btnFavPlayer" aria-pressed="false" title="Add to watchlist">☆ Watchlist</button>
+          <button type="button" class="btn danger tiny" id="btnDeletePlayer">Delete</button>
+          <button type="button" class="btn ghost" id="btnCloseDetail" data-close-modal>Close</button>
+        </div>
+      </div>
+      <div class="detail-stack">
+        <div class="detail-grid detail-grid-top">
+          <section class="detail-block">
+            <div class="detail-block-head">
+              <h3 class="section-label">Game log</h3>
+              <button type="button" class="btn ghost tiny" id="btnOpenGameLog" hidden>Full history</button>
+            </div>
+            <div id="detailGames" class="muted">—</div>
+          </section>
+          <section class="detail-block">
+            <h3 class="section-label">Depth chart</h3>
+            <div id="detailDepth" class="muted">—</div>
+          </section>
+        </div>
+
+        <section class="detail-block detail-season">
+          <h3 class="section-label">Season Stats</h3>
+          <div id="detailSeasonTotal" class="muted">—</div>
+        </section>
+        <section class="detail-block detail-season-avg">
+          <h3 class="section-label">Season Stats (average)</h3>
+          <div id="detailSeasonAvg" class="muted">—</div>
+        </section>
+
+        <section class="detail-block detail-news">
+          <h3 class="section-label">Latest news</h3>
+          <div id="detailNews" class="muted">—</div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal modal-over" id="autoAddModal" hidden>
+    <div class="modal-backdrop" data-close-autoadd></div>
+    <div class="modal-dialog panel auto-add-dialog" role="dialog" aria-modal="true" aria-labelledby="autoAddTitle">
+      <div class="panel-head">
+        <div>
+          <h2 id="autoAddTitle">Add auto player</h2>
+          <p class="panel-sub">Pick how many top-ranked players to add with full details.</p>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn ghost" data-close-autoadd>Close</button>
+        </div>
+      </div>
+      <div class="auto-add-choices" role="radiogroup" aria-label="How many to add">
+        <label class="auto-add-choice">
+          <input type="radio" name="autoAddLimit" value="10" checked>
+          <span class="auto-add-choice-main">10</span>
+          <span class="auto-add-choice-sub">Quick batch</span>
+        </label>
+        <label class="auto-add-choice">
+          <input type="radio" name="autoAddLimit" value="50">
+          <span class="auto-add-choice-main">50</span>
+          <span class="auto-add-choice-sub">Medium</span>
+        </label>
+        <label class="auto-add-choice">
+          <input type="radio" name="autoAddLimit" value="200">
+          <span class="auto-add-choice-main">200</span>
+          <span class="auto-add-choice-sub">Slow · keep Chrome open</span>
+        </label>
+      </div>
+      <div class="auto-add-footer">
+        <button type="button" class="btn primary" id="btnAutoAddConfirm">
+          <span class="btn-label">Start</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal modal-over" id="gameLogModal" hidden>
+    <div class="modal-backdrop" data-close-gamelog></div>
+    <div class="modal-dialog panel detail-panel gamelog-dialog" role="dialog" aria-modal="true" aria-labelledby="gameLogTitle">
+      <div class="panel-head">
+        <div>
+          <h2 id="gameLogTitle">Game log</h2>
+          <p class="panel-sub" id="gameLogMeta">—</p>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn ghost" data-close-gamelog>Close</button>
+        </div>
+      </div>
+      <div id="gameLogFull" class="table-wrap"></div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/search.js') }}?v=10"></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snopcministri · Yahoo Fantasy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1 id="leagueName">Snopcministri</h1>
+        <p class="sub" id="leagueMeta">Loading league data…</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" id="btnSync" class="btn primary">
+          <span class="btn-label">Refresh from Yahoo</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+        <a class="btn ghost" href="https://basketball.fantasysports.yahoo.com/nba/{{ league_id }}" target="_blank" rel="noopener">Open Yahoo</a>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="layout">
+      <section class="panel team-panel">
+        <div class="panel-head">
+          <div>
+            <h2>My Team</h2>
+            <p class="panel-sub" id="teamSub">—</p>
+          </div>
+          <div class="team-badge" id="teamBadge">
+            <img id="teamLogo" alt="" hidden>
+            <span id="teamInitials">CV</span>
+          </div>
+        </div>
+        <div class="roster-meta" id="rosterMeta"></div>
+        <div class="roster" id="roster"></div>
+      </section>
+
+      <aside class="right-col">
+        <section class="panel standings-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Standings</h2>
+              <p class="panel-sub" id="standingsSub">—</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="standings" id="standingsTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Team</th>
+                  <th>Manager</th>
+                  <th>W-L</th>
+                </tr>
+              </thead>
+              <tbody id="standingsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel matchup-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Matchup</h2>
+              <p class="panel-sub" id="matchupSub">—</p>
+            </div>
+          </div>
+          <div class="my-matchup" id="myMatchup"></div>
+          <div class="cat-grid" id="catGrid"></div>
+          <h3 class="section-label">All matchups</h3>
+          <div class="matchup-list" id="matchupList"></div>
+        </section>
+      </aside>
+
+      <section class="panel rules-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Rules</h2>
+            <p class="panel-sub">Saved from Yahoo Settings</p>
+          </div>
+        </div>
+        <div class="chips" id="statChips"></div>
+        <dl class="rules-grid" id="rulesGrid"></dl>
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

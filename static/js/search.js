@@ -1,0 +1,995 @@
+(() => {
+  const $ = (sel) => document.querySelector(sel);
+  const alertEl = $("#alert");
+  const DB_COLS = 17;
+  const SEARCH_COLS = 16;
+
+  function showAlert(msg) {
+    alertEl.hidden = !msg;
+    alertEl.textContent = msg || "";
+  }
+
+  function setBusy(btn, on, idleLabel, busyLabel) {
+    const label = btn.querySelector(".btn-label");
+    const spinner = btn.querySelector(".btn-spinner");
+    btn.disabled = on;
+    if (label) label.textContent = on ? busyLabel : idleLabel;
+    if (spinner) spinner.hidden = !on;
+  }
+
+  function esc(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  function cell(v) {
+    const s = esc(v);
+    return s || "—";
+  }
+
+  function statCells(p) {
+    return `
+      <td class="num">${cell(p.gp)}</td>
+      <td class="num">${cell(p.fg_pct)}</td>
+      <td class="num">${cell(p.ft_pct)}</td>
+      <td class="num">${cell(p.threes)}</td>
+      <td class="num">${cell(p.pts)}</td>
+      <td class="num">${cell(p.reb)}</td>
+      <td class="num">${cell(p.ast)}</td>
+      <td class="num">${cell(p.stl)}</td>
+      <td class="num">${cell(p.blk)}</td>
+      <td class="num">${cell(p.tov ?? p.to)}</td>`;
+  }
+
+  function selectedPlayerIds() {
+    return [...document.querySelectorAll("#dbBody input.row-check:checked")].map((el) =>
+      Number(el.value)
+    );
+  }
+
+  function updateSelectionUi() {
+    const ids = selectedPlayerIds();
+    const n = ids.length;
+    const btnRefresh = $("#btnRefreshSelected");
+    const btnDelete = $("#btnDeleteSelected");
+    if (btnRefresh) btnRefresh.disabled = n === 0;
+    if (btnDelete) btnDelete.disabled = n === 0;
+    if (btnRefresh) {
+      const label = btnRefresh.querySelector(".btn-label");
+      if (label && !btnRefresh.disabled) {
+        label.textContent = n ? `Refresh selected (${n})` : "Refresh selected";
+      } else if (label) {
+        label.textContent = "Refresh selected";
+      }
+    }
+    if (btnDelete) {
+      const label = btnDelete.querySelector(".btn-label");
+      if (label && !btnDelete.disabled) {
+        label.textContent = n ? `Delete selected (${n})` : "Delete selected";
+      } else if (label) {
+        label.textContent = "Delete selected";
+      }
+    }
+    const all = [...document.querySelectorAll("#dbBody input.row-check")];
+    all.forEach((c) => {
+      c.closest("tr")?.classList.toggle("selected-row", c.checked);
+    });
+    const master = $("#chkSelectAll");
+    if (master) {
+      master.checked = all.length > 0 && all.every((c) => c.checked);
+      master.indeterminate = all.some((c) => c.checked) && !master.checked;
+    }
+  }
+
+  let allDbPlayers = [];
+  const SHOW_LIMIT_KEY = "yahoonba_db_show_limit";
+
+  function getShowLimit() {
+    const sel = $("#dbShowLimit");
+    const raw = sel?.value || localStorage.getItem(SHOW_LIMIT_KEY) || "20";
+    if (raw === "all") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 20;
+  }
+
+  function visibleDbPlayers() {
+    const limit = getShowLimit();
+    if (limit == null) return allDbPlayers;
+    return allDbPlayers.slice(0, limit);
+  }
+
+  function renderDbPlayers() {
+    const players = visibleDbPlayers();
+    const total = allDbPlayers.length;
+    const body = $("#dbBody");
+    const sub = $("#dbSub");
+    if (!total) {
+      sub.textContent = "0 players saved locally";
+    } else if (players.length < total) {
+      sub.textContent = `Showing ${players.length} of ${total} players`;
+    } else {
+      sub.textContent = `${total} player${total === 1 ? "" : "s"} saved locally`;
+    }
+
+    if (!total) {
+      body.innerHTML = `<tr><td colspan="${DB_COLS}" class="muted">Database is empty. Search Yahoo and add players.</td></tr>`;
+      const master = $("#chkSelectAll");
+      if (master) {
+        master.checked = false;
+        master.indeterminate = false;
+      }
+      updateSelectionUi();
+      return;
+    }
+
+    body.innerHTML = players
+      .map((p) => {
+        const name = esc(p.full_name);
+        return `
+          <tr class="clickable" data-db-id="${p.id}">
+            <td class="col-check">
+              <input type="checkbox" class="row-check" value="${p.id}" aria-label="Select ${name}">
+            </td>
+            <td class="num">${p.yahoo_rank ?? "—"}</td>
+            <td>
+              <strong>${name}</strong>
+              <div class="subline">${esc(p.first_name)} ${esc(p.last_name)}</div>
+            </td>
+            <td>${esc(p.positions) || "—"}</td>
+            <td>${esc(p.nba_team) || "—"}</td>
+            <td class="num">${cell(p.owned_pct)}</td>
+            ${statCells(p)}
+            <td class="ta-end">
+              <div class="row-actions">
+                <button type="button" class="btn tiny ghost fav-btn ${p.is_favourite ? "is-on" : ""}" data-fav="${p.id}" aria-pressed="${p.is_favourite ? "true" : "false"}" title="${p.is_favourite ? "Remove from watchlist" : "Add to watchlist"}">${p.is_favourite ? "★" : "☆"}</button>
+                <button type="button" class="btn tiny ghost" data-refresh="${p.id}" title="Refresh player data">Refresh</button>
+              </div>
+            </td>
+          </tr>`;
+      })
+      .join("");
+
+    body.querySelectorAll("tr[data-db-id]").forEach((tr) => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("input, button, .row-actions, .col-check")) return;
+        openDetail(Number(tr.dataset.dbId));
+      });
+    });
+    body.querySelectorAll(".row-check").forEach((chk) => {
+      chk.addEventListener("click", (e) => e.stopPropagation());
+      chk.addEventListener("change", updateSelectionUi);
+    });
+    body.querySelectorAll("[data-fav]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleFavourite(Number(btn.dataset.fav), btn);
+      });
+    });
+    body.querySelectorAll("[data-refresh]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        refreshPlayer(Number(btn.dataset.refresh), btn);
+      });
+    });
+    updateSelectionUi();
+  }
+
+  function setFavButton(btn, on) {
+    if (!btn) return;
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    const isDetail = btn.id === "btnFavPlayer";
+    if (isDetail) {
+      btn.textContent = on ? "★ Watchlist" : "☆ Watchlist";
+      btn.title = on ? "Remove from watchlist" : "Add to watchlist";
+    } else {
+      btn.textContent = on ? "★" : "☆";
+      btn.title = on ? "Remove from watchlist" : "Add to watchlist";
+    }
+  }
+
+  async function toggleFavourite(playerId, btn) {
+    const on = btn?.classList.contains("is-on") || btn?.getAttribute("aria-pressed") === "true";
+    const method = on ? "DELETE" : "POST";
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch(`/api/db/players/${playerId}/favourite`, { method });
+      const data = await res.json();
+      if (!data.ok) {
+        showAlert(data.error || "Could not update watchlist.");
+        return;
+      }
+      const next = !!data.is_favourite;
+      const row = allDbPlayers.find((p) => p.id === playerId);
+      if (row) row.is_favourite = next ? 1 : 0;
+      setFavButton(btn, next);
+      document.querySelectorAll(`[data-fav="${playerId}"]`).forEach((el) => setFavButton(el, next));
+      if (currentDetailId === playerId) setFavButton($("#btnFavPlayer"), next);
+    } catch (err) {
+      showAlert(String(err));
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  let currentDetailId = null;
+  let currentGameLogs = [];
+  let currentPlayerName = "";
+
+  function closeDetail() {
+    currentDetailId = null;
+    currentGameLogs = [];
+    currentPlayerName = "";
+    $("#detailModal").hidden = true;
+    const gl = $("#gameLogModal");
+    if (gl) gl.hidden = true;
+    document.body.classList.remove("modal-open");
+  }
+
+  function networkErrorMessage(err) {
+    const msg = String(err || "");
+    if (msg.includes("Failed to fetch") || err?.name === "TypeError") {
+      return (
+        "Connection lost while talking to the server. Keep Chrome debug open, " +
+        "leave this tab open, and try again (long scrapes can take 1–2 min)."
+      );
+    }
+    return msg;
+  }
+
+  async function readJson(res) {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      const snippet = text.trim().slice(0, 80).replace(/\s+/g, " ");
+      throw new Error(
+        `Server returned non-JSON (HTTP ${res.status}). ` +
+          `Restart the Flask app (python main.py), then try again. ` +
+          `(${snippet || "empty body"})`
+      );
+    }
+  }
+
+  const SCRAPE_BTNS = [
+    "#btnAutoAdd",
+    "#btnAutoAddConfirm",
+    "#btnRefreshAll",
+    "#btnRefreshSelected",
+    "#btnSearch",
+  ];
+
+  let scrapeJobRunning = false;
+
+  function setScrapeUiBusy(on) {
+    scrapeJobRunning = on;
+    SCRAPE_BTNS.forEach((sel) => {
+      const el = $(sel);
+      if (el) el.disabled = on;
+    });
+    if (!on) updateSelectionUi();
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function showJobBar(job) {
+    const bar = $("#jobBar");
+    if (!bar) return;
+    bar.hidden = false;
+    updateJobBar(job);
+  }
+
+  function updateJobBar(job) {
+    if (!job) return;
+    const label = $("#jobBarLabel");
+    const meta = $("#jobBarMeta");
+    const text = $("#jobBarText");
+    const fill = $("#jobBarFill");
+    if (label) label.textContent = job.label || "Yahoo job";
+    const total = Number(job.total || 0);
+    const progress = Number(job.progress || 0);
+    if (meta) {
+      meta.textContent =
+        total > 0 ? `${progress}/${total}` : job.status || "running";
+    }
+    if (text) text.textContent = job.message || "Working…";
+    if (fill) {
+      const pct = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 8;
+      fill.style.width = `${pct}%`;
+    }
+  }
+
+  function hideJobBarSoon() {
+    const bar = $("#jobBar");
+    if (!bar) return;
+    setTimeout(() => {
+      if (!scrapeJobRunning) bar.hidden = true;
+    }, 4000);
+  }
+
+  function setBtnBusy(btn, on, idleLabel, busyLabel) {
+    if (!btn) return;
+    if (btn.querySelector && btn.querySelector(".btn-label")) {
+      setBusy(btn, on, idleLabel, busyLabel);
+      return;
+    }
+    btn.disabled = on;
+    btn.textContent = on ? busyLabel : idleLabel;
+  }
+
+  async function watchJob(jobId, { summarize } = {}) {
+    setScrapeUiBusy(true);
+    while (true) {
+      await sleep(1500);
+      const poll = await readJson(await fetch(`/api/jobs/${jobId}`));
+      if (!poll.ok || !poll.job) {
+        showAlert(poll.error || "Lost job status.");
+        break;
+      }
+      updateJobBar(poll.job);
+      if (poll.job.status === "running" || poll.job.status === "queued") continue;
+      if (poll.job.status === "error") {
+        showAlert(poll.job.error || "Job failed.");
+        break;
+      }
+      const result = poll.job.result || {};
+      showAlert(summarize ? summarize(result, poll.job) : `${poll.job.label || "Job"} finished.`);
+      await loadDbPlayers();
+      hideJobBarSoon();
+      break;
+    }
+    setScrapeUiBusy(false);
+  }
+
+  async function runBackgroundJob({
+    url,
+    body,
+    btn,
+    idleLabel,
+    busyLabel,
+    summarize,
+  }) {
+    if (scrapeJobRunning) {
+      showAlert("A Yahoo job is already running — wait for it to finish.");
+      return;
+    }
+    setScrapeUiBusy(true);
+    setBtnBusy(btn, true, idleLabel, busyLabel);
+    showAlert("");
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await readJson(res);
+      if (!data.ok) {
+        showAlert(data.error || "Could not start job.");
+        setScrapeUiBusy(false);
+        return;
+      }
+      showJobBar(data.job || { label: idleLabel, status: "running", progress: 0, total: 0 });
+      // release local busy flag inside watchJob; keep btn busy until watch ends
+      scrapeJobRunning = false;
+      await watchJob(data.job_id, { summarize });
+    } catch (err) {
+      showAlert(networkErrorMessage(err));
+      setScrapeUiBusy(false);
+    } finally {
+      setBtnBusy(btn, false, idleLabel, busyLabel);
+    }
+  }
+
+  async function resumeActiveJobIfAny() {
+    try {
+      const data = await readJson(await fetch("/api/jobs/active"));
+      if (data.job && (data.job.status === "running" || data.job.status === "queued")) {
+        showJobBar(data.job);
+        showAlert(`${data.job.label} is still running — you can browse the page.`);
+        await watchJob(data.job.id);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  async function refreshPlayer(playerId, btn) {
+    await runBackgroundJob({
+      url: `/api/db/players/${playerId}/refresh`,
+      btn,
+      idleLabel: "Refresh",
+      busyLabel: "…",
+      summarize: (result) => {
+        if (currentDetailId === playerId) openDetail(playerId);
+        return `Refreshed ${result.full_name || "player"}.`;
+      },
+    });
+  }
+
+  async function bulkAddPlayers(limit, btn) {
+    const idle = btn.querySelector(".btn-label")?.textContent || `Add ${limit} new`;
+    await runBackgroundJob({
+      url: "/api/bulk-add-players",
+      body: { limit },
+      btn,
+      idleLabel: idle,
+      busyLabel: `Adding ${limit}…`,
+      summarize: (result) => {
+        const n = result.added_count ?? 0;
+        return n
+          ? `Added ${n} new player${n === 1 ? "" : "s"} with full details (skipped ${result.skipped_existing ?? 0} already in DB).`
+          : "No new players to add — all top candidates are already in the DB.";
+      },
+    });
+  }
+
+  async function refreshAllPlayers(btn) {
+    if (
+      !window.confirm(
+        "Refresh ALL players in the database from Yahoo?\n\n" +
+          "This re-scrapes news, game logs, season stats and depth charts.\n" +
+          "You can keep browsing the page while it runs."
+      )
+    ) {
+      return;
+    }
+    await runBackgroundJob({
+      url: "/api/refresh-all-players",
+      btn,
+      idleLabel: "Refresh all",
+      busyLabel: "Refreshing…",
+      summarize: (result) => {
+        const fail = result.failed_count ?? 0;
+        return (
+          `Refreshed ${result.refreshed ?? 0}/${result.total ?? 0} players` +
+          (fail ? ` (${fail} failed).` : ".")
+        );
+      },
+    });
+  }
+
+  async function refreshSelectedPlayers(btn) {
+    const ids = selectedPlayerIds();
+    if (!ids.length) {
+      showAlert("Select at least one player first.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Refresh ${ids.length} selected player${ids.length === 1 ? "" : "s"} from Yahoo?\n` +
+          "You can keep browsing while it runs."
+      )
+    ) {
+      return;
+    }
+    const idle = btn.querySelector(".btn-label")?.textContent || "Refresh selected";
+    await runBackgroundJob({
+      url: "/api/db/players/refresh-selected",
+      body: { ids },
+      btn,
+      idleLabel: idle,
+      busyLabel: `Refreshing ${ids.length}…`,
+      summarize: (result) => {
+        const fail = result.failed_count ?? 0;
+        return (
+          `Refreshed ${result.refreshed ?? 0}/${result.total ?? 0} selected` +
+          (fail ? ` (${fail} failed).` : ".")
+        );
+      },
+    });
+  }
+
+  async function deleteSelectedPlayers(btn) {
+    const ids = selectedPlayerIds();
+    if (!ids.length) {
+      showAlert("Select at least one player first.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete ${ids.length} selected player${ids.length === 1 ? "" : "s"} from the local database?`
+      )
+    ) {
+      return;
+    }
+    const idle = btn.querySelector(".btn-label")?.textContent || "Delete selected";
+    setBusy(btn, true, idle, "Deleting…");
+    showAlert("");
+    try {
+      const res = await fetch("/api/db/players/delete-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await readJson(res);
+      if (!data.ok) {
+        showAlert(data.error || "Delete selected failed.");
+        return;
+      }
+      if (currentDetailId != null && ids.includes(currentDetailId)) closeDetail();
+      showAlert(`Deleted ${data.deleted_count ?? 0} player${(data.deleted_count ?? 0) === 1 ? "" : "s"}.`);
+      await loadDbPlayers();
+    } catch (err) {
+      showAlert(networkErrorMessage(err));
+    } finally {
+      setBusy(btn, false, "Delete selected", "Deleting…");
+      updateSelectionUi();
+    }
+  }
+
+  async function deletePlayer(playerId, { skipConfirm = false } = {}) {
+    if (!skipConfirm && !window.confirm("Delete this player from the local database?")) {
+      return;
+    }
+    showAlert("");
+    try {
+      const res = await fetch(`/api/db/players/${playerId}`, { method: "DELETE" });
+      const data = await readJson(res);
+      if (!data.ok) {
+        showAlert(data.error || "Could not delete player.");
+        return;
+      }
+      if (currentDetailId === playerId) closeDetail();
+      await loadDbPlayers();
+    } catch (err) {
+      showAlert(networkErrorMessage(err));
+    }
+  }
+
+  function renderSearchRows(players) {
+    const body = $("#searchBody");
+    if (!players.length) {
+      body.innerHTML = `<tr><td colspan="${SEARCH_COLS}" class="muted">No players found.</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = players
+      .map((p) => {
+        const name = esc(p.name);
+        const team = p.nba_team ? esc(p.nba_team) : "";
+        const payload = encodeURIComponent(
+          JSON.stringify({
+            player_id: p.player_id,
+            name: p.name,
+            positions: p.positions,
+            nba_team: p.nba_team,
+            profile_url: p.profile_url,
+            rank: p.rank,
+            owned_pct: p.owned_pct,
+            gp: p.gp,
+            fg_pct: p.fg_pct,
+            ft_pct: p.ft_pct,
+            threes: p.threes,
+            pts: p.pts,
+            reb: p.reb,
+            ast: p.ast,
+            stl: p.stl,
+            blk: p.blk,
+            to: p.to,
+          })
+        );
+        const action = p.in_db
+          ? `<button type="button" class="btn tiny ghost" data-view="${p.db_id}">In DB</button>`
+          : `<button type="button" class="btn tiny primary" data-add="${payload}">Add</button>`;
+        return `
+          <tr class="${p.in_db ? "in-db" : ""}">
+            <td>
+              <strong>${name}</strong>
+              <div class="subline">${team}</div>
+            </td>
+            <td>${esc(p.positions) || "—"}</td>
+            <td><span class="status ${p.available ? "fa" : ""}">${esc(p.status) || "—"}</span></td>
+            <td class="num">${cell(p.rank)}</td>
+            <td class="num">${cell(p.owned_pct)}</td>
+            ${statCells(p)}
+            <td class="ta-end">${action}</td>
+          </tr>`;
+      })
+      .join("");
+
+    body.querySelectorAll("[data-view]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openDetail(Number(btn.dataset.view));
+      });
+    });
+
+    body.querySelectorAll("[data-add]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const raw = JSON.parse(decodeURIComponent(btn.getAttribute("data-add")));
+        await runBackgroundJob({
+          url: "/api/db/players/add",
+          body: { ...raw, scrape_details: true },
+          btn,
+          idleLabel: "Add",
+          busyLabel: "Adding…",
+          summarize: (result) => {
+            const pid = result.player_id;
+            if (pid) {
+              btn.textContent = "In DB";
+              btn.className = "btn tiny ghost";
+              btn.removeAttribute("data-add");
+              btn.dataset.view = String(pid);
+              btn.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                openDetail(Number(btn.dataset.view));
+              });
+              openDetail(pid);
+            }
+            return result.already_existed
+              ? `${result.full_name || "Player"} is already in the DB.`
+              : `Added ${result.full_name || "player"}.`;
+          },
+        });
+      });
+    });
+  }
+
+  function renderSeasonTable(rows, { showGp }) {
+    if (!rows.length) return `<p class="muted">No data yet — use Refresh.</p>`;
+    const head = `
+      <thead><tr>
+        <th class="tal">Season</th>
+        ${showGp ? "<th>GP</th>" : ""}
+        <th>Rank</th>
+        <th>FG%</th>
+        <th>FT%</th>
+        <th>3PT</th>
+        <th>PTS</th>
+        <th>REB</th>
+        <th>AST</th>
+        <th>STL</th>
+        <th>BLK</th>
+        <th>TO</th>
+      </tr></thead>`;
+    const body = rows
+      .map(
+        (s) => `
+      <tr>
+        <td class="tal"><span class="stat-year">${esc(s.season)}</span></td>
+        ${showGp ? `<td>${cell(s.games_played)}</td>` : ""}
+        <td>${cell(s.season_rank)}</td>
+        <td>${cell(s.fg_pct)}</td>
+        <td>${cell(s.ft_pct)}</td>
+        <td>${cell(s.threes)}</td>
+        <td>${cell(s.pts)}</td>
+        <td>${cell(s.reb)}</td>
+        <td>${cell(s.ast)}</td>
+        <td>${cell(s.stl)}</td>
+        <td>${cell(s.blk)}</td>
+        <td>${cell(s.tov)}</td>
+      </tr>`
+      )
+      .join("");
+    return `<div class="table-wrap"><table class="stat-table">${head}<tbody>${body}</tbody></table></div>`;
+  }
+
+  function renderDepthTable(rows) {
+    if (!rows.length) return `<p class="muted">No depth chart yet.</p>`;
+    const body = rows
+      .map(
+        (d) => `
+      <tr>
+        <td><span class="depth-rank">#${esc(d.depth_rank)}</span></td>
+        <td>${esc(d.depth_player_name)}</td>
+        <td>${esc(d.position) || "—"}</td>
+        <td>${d.yahoo_rank != null ? esc(d.yahoo_rank) : "—"}</td>
+      </tr>`
+      )
+      .join("");
+    return `<div class="table-wrap"><table class="stat-table depth-table">
+      <thead><tr><th class="tal">#</th><th class="tal">Player</th><th>Pos</th><th>Rank</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
+  }
+
+  function renderGameLogTable(rows, { previewLimit = null } = {}) {
+    if (!rows.length) return `<p class="muted">No game log yet.</p>`;
+    const shown = previewLimit != null ? rows.slice(0, previewLimit) : rows;
+    const head = `
+      <thead><tr>
+        <th class="tal">Date</th>
+        <th class="tal">Opp</th>
+        <th>MIN</th>
+        <th>FG</th>
+        <th>FT</th>
+        <th>3PT</th>
+        <th>PTS</th>
+        <th>REB</th>
+        <th>AST</th>
+        <th>STL</th>
+        <th>BLK</th>
+        <th>TO</th>
+      </tr></thead>`;
+    const body = shown
+      .map((g) => {
+        const matchup = `${g.is_home ? "vs" : "@"} ${esc(g.opponent || "—")}`;
+        return `
+        <tr>
+          <td class="tal"><span class="stat-date">${esc(g.game_date || "—")}</span></td>
+          <td class="tal"><span class="stat-opp">${matchup}</span></td>
+          <td>${cell(g.minutes)}</td>
+          <td>${cell(g.fgm_a || g.fg_pct)}</td>
+          <td>${cell(g.ftm_a || g.ft_pct)}</td>
+          <td>${cell(g.threes)}</td>
+          <td>${cell(g.pts)}</td>
+          <td>${cell(g.reb)}</td>
+          <td>${cell(g.ast)}</td>
+          <td>${cell(g.stl)}</td>
+          <td>${cell(g.blk)}</td>
+          <td>${cell(g.tov)}</td>
+        </tr>`;
+      })
+      .join("");
+    return `<table class="stat-table">${head}<tbody>${body}</tbody></table>`;
+  }
+
+  function renderNewsCards(items) {
+    if (!items.length) return `<p class="muted">No news yet.</p>`;
+    return items
+      .map((n) => {
+        const body = n.body || "";
+        const short = body.length > 320 ? `${body.slice(0, 320)}…` : body;
+        return `<article class="news-card">
+          <h4>${esc(n.title || "Update")}</h4>
+          <div class="subline">${esc(n.published_at || "—")}${n.source ? ` · ${esc(n.source)}` : ""}</div>
+          ${short ? `<p>${esc(short)}</p>` : ""}
+        </article>`;
+      })
+      .join("");
+  }
+
+  function openGameLogHistory(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!currentGameLogs.length) return;
+    const modal = $("#gameLogModal");
+    if (!modal) return;
+    $("#gameLogTitle").textContent = `${currentPlayerName || "Player"} · Game log`;
+    $("#gameLogMeta").textContent = `${currentGameLogs.length} game${currentGameLogs.length === 1 ? "" : "s"}`;
+    $("#gameLogFull").innerHTML = renderGameLogTable(currentGameLogs);
+    modal.hidden = false;
+    modal.removeAttribute("hidden");
+    document.body.classList.add("modal-open");
+  }
+
+  function closeGameLogHistory(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const modal = $("#gameLogModal");
+    if (modal) {
+      modal.hidden = true;
+      modal.setAttribute("hidden", "");
+    }
+    if ($("#detailModal")?.hidden) document.body.classList.remove("modal-open");
+  }
+
+  async function openDetail(playerId) {
+    const modal = $("#detailModal");
+    currentDetailId = playerId;
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+    $("#detailName").textContent = "Loading…";
+    $("#detailMeta").textContent = "";
+    $("#detailSeasonTotal").innerHTML = "Loading…";
+    $("#detailSeasonAvg").innerHTML = "Loading…";
+    $("#detailDepth").innerHTML = "Loading…";
+    $("#detailGames").innerHTML = "Loading…";
+    $("#detailNews").innerHTML = "Loading…";
+    const btnFull = $("#btnOpenGameLog");
+    if (btnFull) btnFull.hidden = true;
+
+    try {
+      const res = await fetch(`/api/db/players/${playerId}`);
+      const data = await res.json();
+      if (!data.ok) {
+        showAlert(data.error || "Player not found.");
+        closeDetail();
+        return;
+      }
+      const p = data.player;
+      currentPlayerName = p.full_name || "";
+      $("#detailName").textContent = p.full_name;
+      $("#detailMeta").textContent = [
+        p.nba_team,
+        p.positions,
+        p.yahoo_rank != null ? `Rank ${p.yahoo_rank}` : null,
+        p.owned_pct ? `${p.owned_pct} owned` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setFavButton($("#btnFavPlayer"), !!p.is_favourite);
+
+      const seasonAll = data.season || [];
+      const seasonTotals = seasonAll
+        .filter((s) => s.record_type === "season_total")
+        .sort((a, b) => String(b.season).localeCompare(String(a.season)));
+      const seasonAvgs = seasonAll
+        .filter((s) => s.record_type === "season_avg")
+        .sort((a, b) => String(b.season).localeCompare(String(a.season)));
+
+      $("#detailSeasonTotal").innerHTML = renderSeasonTable(seasonTotals, { showGp: true });
+      $("#detailSeasonAvg").innerHTML = renderSeasonTable(seasonAvgs, { showGp: false });
+      $("#detailDepth").innerHTML = renderDepthTable(data.depth || []);
+
+      currentGameLogs = data.game_logs || [];
+      const previewLimit = 5;
+      if (!currentGameLogs.length) {
+        $("#detailGames").innerHTML = `<p class="muted">No game log yet.</p>`;
+        if (btnFull) btnFull.hidden = true;
+      } else {
+        const tableHtml = renderGameLogTable(currentGameLogs, { previewLimit });
+        const more =
+          currentGameLogs.length > previewLimit
+            ? `<div class="stat-preview-foot">Last ${previewLimit} of ${currentGameLogs.length} — click for full history</div>`
+            : `<div class="stat-preview-foot">Click for full history (${currentGameLogs.length})</div>`;
+        $("#detailGames").innerHTML = `<div class="stat-preview" id="gameLogPreview" role="button" tabindex="0" title="Open full game log"><div class="table-wrap">${tableHtml}</div>${more}</div>`;
+        if (btnFull) btnFull.hidden = false;
+      }
+
+      $("#detailNews").innerHTML = renderNewsCards(data.news || []);
+    } catch (err) {
+      showAlert(String(err));
+      closeDetail();
+    }
+  }
+
+  async function loadDbPlayers() {
+    try {
+      const res = await fetch("/api/db/players");
+      const data = await res.json();
+      if (!data.ok) {
+        showAlert(data.error || "Could not load database players.");
+        return;
+      }
+      allDbPlayers = data.players || [];
+      renderDbPlayers();
+    } catch (err) {
+      showAlert(String(err));
+    }
+  }
+
+  async function runSearch(q) {
+    const btn = $("#btnSearch");
+    setBusy(btn, true, "Search Yahoo", "Searching…");
+    showAlert("");
+    try {
+      const res = await fetch(`/api/players/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!data.ok) {
+        showAlert(data.error || "Search failed.");
+        return;
+      }
+      renderSearchRows(data.players || []);
+    } catch (err) {
+      showAlert(String(err));
+    } finally {
+      setBusy(btn, false, "Search Yahoo", "Searching…");
+    }
+  }
+
+  $("#searchForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = $("#searchInput").value.trim();
+    if (q.length >= 2) runSearch(q);
+  });
+
+  $("#btnRefreshDb").addEventListener("click", loadDbPlayers);
+  const dbShowLimit = $("#dbShowLimit");
+  if (dbShowLimit) {
+    const saved = localStorage.getItem(SHOW_LIMIT_KEY);
+    if (saved && [...dbShowLimit.options].some((o) => o.value === saved)) {
+      dbShowLimit.value = saved;
+    } else {
+      dbShowLimit.value = "20";
+    }
+    dbShowLimit.addEventListener("change", () => {
+      localStorage.setItem(SHOW_LIMIT_KEY, dbShowLimit.value);
+      renderDbPlayers();
+    });
+  }
+  $("#btnAddPlayerJump")?.addEventListener("click", () => {
+    const section = $("#findAddSection");
+    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const input = $("#searchInput");
+    if (input) {
+      window.setTimeout(() => input.focus(), 350);
+    }
+  });
+  function openAutoAddModal() {
+    const modal = $("#autoAddModal");
+    if (!modal || scrapeJobRunning) return;
+    modal.hidden = false;
+    document.body.classList.add("modal-open");
+  }
+
+  function closeAutoAddModal() {
+    const modal = $("#autoAddModal");
+    if (modal) modal.hidden = true;
+    if ($("#detailModal")?.hidden && $("#gameLogModal")?.hidden) {
+      document.body.classList.remove("modal-open");
+    }
+  }
+
+  $("#btnAutoAdd")?.addEventListener("click", openAutoAddModal);
+  document.querySelectorAll("[data-close-autoadd]").forEach((el) => {
+    el.addEventListener("click", closeAutoAddModal);
+  });
+  $("#btnAutoAddConfirm")?.addEventListener("click", async () => {
+    const picked = document.querySelector('input[name="autoAddLimit"]:checked');
+    const limit = Number(picked?.value || 10);
+    closeAutoAddModal();
+    await bulkAddPlayers(Number.isFinite(limit) ? limit : 10, $("#btnAutoAdd"));
+  });
+  const btnRefreshAll = $("#btnRefreshAll");
+  if (btnRefreshAll) {
+    btnRefreshAll.addEventListener("click", () => refreshAllPlayers(btnRefreshAll));
+  }
+  const btnRefreshSelected = $("#btnRefreshSelected");
+  if (btnRefreshSelected) {
+    btnRefreshSelected.addEventListener("click", () =>
+      refreshSelectedPlayers(btnRefreshSelected)
+    );
+  }
+  const btnDeleteSelected = $("#btnDeleteSelected");
+  if (btnDeleteSelected) {
+    btnDeleteSelected.addEventListener("click", () =>
+      deleteSelectedPlayers(btnDeleteSelected)
+    );
+  }
+  const chkSelectAll = $("#chkSelectAll");
+  if (chkSelectAll) {
+    chkSelectAll.addEventListener("change", () => {
+      document.querySelectorAll("#dbBody input.row-check").forEach((c) => {
+        c.checked = chkSelectAll.checked;
+      });
+      updateSelectionUi();
+    });
+  }
+  $("#btnDeletePlayer").addEventListener("click", () => {
+    if (currentDetailId != null) deletePlayer(currentDetailId);
+  });
+  $("#btnFavPlayer")?.addEventListener("click", () => {
+    if (currentDetailId != null) toggleFavourite(currentDetailId, $("#btnFavPlayer"));
+  });
+
+  document.querySelectorAll("[data-close-modal]").forEach((el) => {
+    el.addEventListener("click", closeDetail);
+  });
+  document.querySelectorAll("[data-close-gamelog]").forEach((el) => {
+    el.addEventListener("click", closeGameLogHistory);
+  });
+
+  const btnOpenGameLog = $("#btnOpenGameLog");
+  if (btnOpenGameLog) {
+    btnOpenGameLog.addEventListener("click", openGameLogHistory);
+  }
+  $("#detailGames")?.addEventListener("click", (e) => {
+    if (e.target.closest("#gameLogPreview, .stat-preview")) openGameLogHistory(e);
+  });
+  $("#detailGames")?.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.closest("#gameLogPreview")) {
+      openGameLogHistory(e);
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if ($("#autoAddModal") && !$("#autoAddModal").hidden) closeAutoAddModal();
+    else if ($("#gameLogModal") && !$("#gameLogModal").hidden) closeGameLogHistory();
+    else if (!$("#detailModal").hidden) closeDetail();
+  });
+
+  loadDbPlayers();
+  resumeActiveJobIfAny();
+})();

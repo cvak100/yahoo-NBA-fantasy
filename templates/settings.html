@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Settings</h1>
+        <p class="sub">Local app and player database controls</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="settings-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Player database</h2>
+            <p class="panel-sub" id="dbCountSub">Loading…</p>
+          </div>
+        </div>
+        <p class="settings-note">
+          This permanently deletes all saved players, news, game logs, and depth charts from
+          <code>data/players.db</code>. Yahoo league data is not affected.
+        </p>
+        <div class="settings-actions">
+          <button type="button" class="btn danger" id="btnClearDb">
+            <span class="btn-label">Delete all players</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+</body>
+</html>

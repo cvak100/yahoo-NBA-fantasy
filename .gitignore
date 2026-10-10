@@ -1,0 +1,11 @@
+.chrome_profile/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.log
+data/*
+!data/.gitkeep
+_probe*.py
+_debug*

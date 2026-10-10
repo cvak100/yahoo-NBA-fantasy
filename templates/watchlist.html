@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Watchlist · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=6">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Watchlist</h1>
+        <p class="sub">Favourites grouped by eligibility — multi-position players appear in each slot.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="btnRefreshWatchlist">Refresh</button>
+        <button type="button" class="btn danger" id="btnClearWatchlist" title="Remove all favourites">Clear</button>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="watchlist-layout">
+      <p class="panel-sub" id="watchSub">Loading…</p>
+      <div id="watchGroups" class="watch-groups"></div>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/watchlist.js') }}?v=7"></script>
+</body>
+</html>
