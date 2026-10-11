@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -30,6 +30,78 @@
       <section class="panel">
         <div class="panel-head">
           <div>
+            <h2>Main refresh</h2>
+            <p class="panel-sub">Used by Dashboard → Refresh from Yahoo (morning update)</p>
+          </div>
+        </div>
+        <p class="settings-note">
+          Pick which steps run on Dashboard → Refresh. Order when enabled:
+          league → roster → news → injuries → trends → top
+          <strong>N available</strong> (last, usually slowest).
+          Each run stores step times for average wait / ETA.
+        </p>
+        <form id="refreshSettingsForm" class="settings-form">
+          <label class="settings-field" for="myTeamSelect">
+            <span>My team</span>
+            <select id="myTeamSelect" name="my_team_id" aria-label="My fantasy team">
+              <option value="">Detect from Yahoo login…</option>
+            </select>
+            <span class="settings-hint">Updates My Team, standings highlight, and matchup immediately. Run Refresh for that team’s full roster + season schedule.</span>
+          </label>
+
+          <fieldset class="settings-steps">
+            <legend>Refresh steps</legend>
+            <label class="settings-check" for="stepLeague">
+              <input id="stepLeague" data-refresh-step="league" type="checkbox" checked>
+              <span>League data</span>
+            </label>
+            <label class="settings-check" for="stepRoster">
+              <input id="stepRoster" data-refresh-step="roster" type="checkbox" checked>
+              <span>My roster players</span>
+            </label>
+            <label class="settings-check" for="stepNews">
+              <input id="stepNews" data-refresh-step="news" type="checkbox" checked>
+              <span>Fantasy news</span>
+            </label>
+            <label class="settings-check" for="stepInjuries">
+              <input id="stepInjuries" data-refresh-step="injuries" type="checkbox" checked>
+              <span>Injury report</span>
+            </label>
+            <label class="settings-check" for="stepTrends">
+              <input id="stepTrends" data-refresh-step="trends" type="checkbox" checked>
+              <span>Trends</span>
+            </label>
+            <label class="settings-check" for="stepAvailable">
+              <input id="stepAvailable" data-refresh-step="available" type="checkbox" checked>
+              <span>Top available players</span>
+            </label>
+          </fieldset>
+
+          <label class="settings-field" for="refreshAvailableCount">
+            <span>Available players to check</span>
+            <input
+              id="refreshAvailableCount"
+              name="refresh_available_count"
+              type="number"
+              min="1"
+              max="500"
+              step="1"
+              value="100"
+            >
+            <span class="settings-hint">First N free agents on Yahoo (by Average Rank). Min 1 · typical 50–200.</span>
+          </label>
+          <div class="settings-actions">
+            <button type="submit" class="btn primary" id="btnSaveRefreshSettings">
+              <span class="btn-label">Save</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
             <h2>Player database</h2>
             <p class="panel-sub" id="dbCountSub">Loading…</p>
           </div>
@@ -47,6 +119,6 @@
       </section>
     </main>
   </div>
-  <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/settings.js') }}?v=27"></script>
 </body>
 </html>

@@ -99,42 +99,92 @@ def _merge_team_ids_from_links(
 
 
 def _scrape_standings_table(driver: WebDriver) -> list[dict[str, Any]] | None:
-    table = driver.find_elements(By.CSS_SELECTOR, "#standingstable")
-    if not table:
+    """Parse standings; Yahoo uses a logo link + a separate name link in the Team cell."""
+    league_id = config.LEAGUE_ID
+    rows = driver.execute_script(
+        """
+        const leagueId = arguments[0];
+        const table = document.querySelector('#standingstable');
+        if (!table) return null;
+        const trs = [...table.querySelectorAll('tbody tr')];
+        if (!trs.length) return null;
+        const marker = '/nba/' + leagueId + '/';
+        function teamIdFromHref(href) {
+          const s = String(href || '');
+          const i = s.indexOf(marker);
+          if (i < 0) return '';
+          let id = '';
+          for (let k = i + marker.length; k < s.length; k++) {
+            const ch = s[k];
+            if (ch < '0' || ch > '9') break;
+            id += ch;
+          }
+          return id;
+        }
+        const out = [];
+        for (let idx = 0; idx < trs.length; idx++) {
+          const tr = trs[idx];
+          const links = [...tr.querySelectorAll('a[href]')].filter((a) =>
+            teamIdFromHref(a.getAttribute('href') || a.href || '')
+          );
+          if (!links.length) continue;
+          // Prefer the link that has visible team name text; logo link is often empty.
+          const nameLink = links.find((a) => (a.textContent || '').trim()) || links[0];
+          const logoLink = links.find((a) => a.querySelector('img')) || links[0];
+          const href = (nameLink.getAttribute('href') || logoLink.getAttribute('href') || '').split('?')[0];
+          const teamId = teamIdFromHref(href);
+          if (!teamId) continue;
+          const cells = [...tr.querySelectorAll('td')].map((td) =>
+            (td.textContent || '').replace(/\\s+/g, ' ').trim()
+          );
+          let name = (nameLink.textContent || '').replace(/\\s+/g, ' ').trim();
+          if (!name) {
+            const teamCell = tr.querySelectorAll('td')[1] || nameLink.closest('td');
+            name = ((teamCell && teamCell.textContent) || '').replace(/\\s+/g, ' ').trim();
+          }
+          const img = logoLink.querySelector('img');
+          const logo = img ? (img.getAttribute('src') || '') : '';
+          let record = '';
+          for (const c of cells) {
+            if (/^\\d+-\\d+(?:-\\d+)?$/.test(c)) { record = c; break; }
+          }
+          // Typical cols: [rankmark, team, W-L-T, Pct, GB, Last Week, Waiver, Moves]
+          out.push({
+            rank: idx + 1,
+            team_id: teamId,
+            name,
+            record,
+            pct: cells[3] || '',
+            waiver: cells[6] || '',
+            moves: cells[7] || '',
+            logo,
+            cells,
+            url: href.startsWith('http')
+              ? href
+              : ('https://basketball.fantasysports.yahoo.com' + href),
+          });
+        }
+        return out.length ? out : null;
+        """,
+        league_id,
+    )
+    if not rows:
         return None
-
-    rows_out: list[dict[str, Any]] = []
-    body_rows = table[0].find_elements(By.CSS_SELECTOR, "tbody tr")
-    if not body_rows:
-        return None
-
-    for i, row in enumerate(body_rows, start=1):
-        links = row.find_elements(
-            By.CSS_SELECTOR, f'a[href*="/nba/{config.LEAGUE_ID}/"]'
-        )
-        if not links:
-            continue
-        href = links[0].get_attribute("href") or ""
-        m = _TEAM_HREF_RE.search(href)
-        if not m:
-            continue
-        cells = [c.text.strip() for c in row.find_elements(By.CSS_SELECTOR, "td")]
-        name = (links[0].text or "").strip()
-        rows_out.append(
-            {
-                "rank": i,
-                "team_id": m.group(1),
-                "name": name,
-                "cells": cells,
-                "url": href.split("?")[0],
-            }
-        )
-    return rows_out or None
+    return list(rows)
 
 
 def scrape_league(driver: WebDriver) -> dict[str, Any]:
-    driver.get(config.LEAGUE_URL)
+    # Force league home standings module — bare /nba/{id} sometimes lands on My Team.
+    driver.get(f"{config.LEAGUE_URL}?lhst=stand")
     time.sleep(config.PAGE_LOAD_WAIT_SEC)
+    # If Yahoo still dropped us on a team page, bounce back to standings.
+    try:
+        cur = driver.current_url or ""
+        if re.search(rf"/nba/{re.escape(config.LEAGUE_ID)}/\d+", cur) and "lhst=stand" not in cur:
+            driver.get(f"{config.LEAGUE_URL}?lhst=stand")
+            time.sleep(config.PAGE_LOAD_WAIT_SEC)
+    except Exception:
+        pass
     html = driver.page_source
 
     my_team_name = _extract_js_string(html, "varPRCurrTeamName") or ""
@@ -167,22 +217,51 @@ def scrape_league(driver: WebDriver) -> dict[str, Any]:
     standings_rows = _scrape_standings_table(driver)
     pre_draft = standings_rows is None
 
+    # Index helpers for filling blank standings cells after draft.
+    teams_by_id = {str(t.get("team_id")): t for t in teams if t.get("team_id") is not None}
+    teams_by_name = {str(t.get("name") or "").strip(): t for t in teams if t.get("name")}
+
     if standings_rows:
         board = []
         for row in standings_rows:
-            match = next((t for t in teams if t["team_id"] == row["team_id"]), None)
+            tid = str(row.get("team_id") or "")
+            match = teams_by_id.get(tid)
+            if match is None and row.get("name"):
+                match = teams_by_name.get(str(row.get("name") or "").strip())
+            name = (row.get("name") or (match or {}).get("name") or "").strip()
             board.append(
                 {
                     "rank": row["rank"],
-                    "team_id": row["team_id"],
-                    "name": row["name"],
+                    "team_id": tid,
+                    "name": name,
                     "manager": (match or {}).get("manager") or "",
-                    "logo": (match or {}).get("logo") or "",
-                    "record": "",
-                    "url": row.get("url"),
-                    "is_mine": row["team_id"] == my_team_id,
+                    "logo": (row.get("logo") or (match or {}).get("logo") or ""),
+                    "record": (row.get("record") or "").strip() or "0-0-0",
+                    "pct": (row.get("pct") or "").strip(),
+                    "waiver": (row.get("waiver") or "").strip(),
+                    "moves": (row.get("moves") or "").strip(),
+                    "url": row.get("url") or f"{config.LEAGUE_URL}/{tid}",
+                    "is_mine": tid == str(my_team_id) if my_team_id else False,
                 }
             )
+        # Back-fill teams list from standings when invite JSON is gone post-draft.
+        if board and (not teams or all(not (t.get("name") or "").strip() for t in teams)):
+            teams = [
+                {
+                    "team_id": r["team_id"],
+                    "name": r["name"],
+                    "manager": r.get("manager") or "",
+                    "logo": r.get("logo") or "",
+                    "url": r.get("url"),
+                    "is_mine": r.get("is_mine"),
+                }
+                for r in board
+            ]
+        elif board:
+            for r in board:
+                t = teams_by_id.get(str(r["team_id"]))
+                if t is not None and not (t.get("name") or "").strip() and r.get("name"):
+                    t["name"] = r["name"]
     else:
         board = []
         for i, t in enumerate(

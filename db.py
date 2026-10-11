@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -74,8 +76,64 @@ CREATE TABLE IF NOT EXISTS watchlist (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS fantasy_news (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_hash TEXT NOT NULL UNIQUE,
+    player_name TEXT,
+    player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    nba_player_id TEXT,
+    published_at TEXT,
+    published_iso TEXT,
+    source TEXT,
+    title TEXT,
+    body TEXT,
+    team_name TEXT,
+    scraped_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS injuries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_hash TEXT NOT NULL UNIQUE,
+    team_name TEXT NOT NULL,
+    player_name TEXT NOT NULL,
+    player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    position TEXT,
+    updated_at TEXT,
+    injury TEXT,
+    injury_status TEXT,
+    cbs_player_id TEXT,
+    scraped_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS roster_trends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    source_label TEXT,
+    source_url TEXT,
+    rank INTEGER NOT NULL,
+    player_name TEXT NOT NULL,
+    player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+    positions TEXT,
+    nba_team TEXT,
+    roster_status TEXT,
+    recent_views TEXT,
+    today_views TEXT,
+    owned_pct TEXT,
+    start_pct TEXT,
+    adds TEXT,
+    drops TEXT,
+    trades TEXT,
+    total TEXT,
+    external_id TEXT,
+    scraped_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_player_stats_player ON player_stats(player_id, record_type);
 CREATE INDEX IF NOT EXISTS idx_depth_player ON player_depth_chart(player_id, position);
+CREATE INDEX IF NOT EXISTS idx_fantasy_news_published ON fantasy_news(published_iso DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_fantasy_news_player ON fantasy_news(player_id);
+CREATE INDEX IF NOT EXISTS idx_injuries_team ON injuries(team_name, player_name);
+CREATE INDEX IF NOT EXISTS idx_roster_trends_source ON roster_trends(source, rank);
 """
 
 WATCHLIST_POSITION_ORDER = ("PG", "SG", "G", "SF", "PF", "F", "C", "Util")
@@ -211,6 +269,694 @@ def parse_positions(positions: str | None) -> list[str]:
         if pos and pos not in out:
             out.append(pos)
     return out
+
+
+_NAME_SUFFIX_RE = re.compile(r"\b(jr|sr|ii|iii|iv|v)\b", re.I)
+
+
+def normalize_player_name(name: str | None) -> str:
+    raw = unicodedata.normalize("NFKD", str(name or ""))
+    raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
+    raw = raw.lower().replace(".", " ")
+    raw = _NAME_SUFFIX_RE.sub(" ", raw)
+    raw = re.sub(r"[^a-z0-9\s'-]", " ", raw)
+    raw = re.sub(r"\s+", " ", raw).strip()
+    return raw
+
+
+def find_player_id_by_name(
+    name: str | None, conn: sqlite3.Connection | None = None
+) -> int | None:
+    """Best-effort match of a display name to a local players.id."""
+    needle = normalize_player_name(name)
+    if not needle:
+        return None
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT id, full_name, first_name, last_name FROM players"
+        ).fetchall()
+        exact: list[int] = []
+        loose: list[int] = []
+        last_only: list[int] = []
+        parts = needle.split()
+        last = parts[-1] if parts else ""
+        first_token = parts[0] if parts else ""
+        for r in rows:
+            full = normalize_player_name(r["full_name"])
+            first = normalize_player_name(r["first_name"])
+            lname = normalize_player_name(r["last_name"])
+            composed = normalize_player_name(f"{r['first_name']} {r['last_name']}")
+            pid = int(r["id"])
+            if needle in {full, composed}:
+                exact.append(pid)
+            elif full and (needle == full or composed == needle):
+                exact.append(pid)
+            elif full and (needle in full or full in needle or composed in needle or needle in composed):
+                loose.append(pid)
+            elif last and lname == last:
+                if len(parts) == 1:
+                    last_only.append(pid)
+                elif first_token and first.startswith(first_token[0]):
+                    last_only.append(pid)
+        for bucket in (exact, loose, last_only):
+            uniq = list(dict.fromkeys(bucket))
+            if len(uniq) == 1:
+                return uniq[0]
+        return None
+    finally:
+        if own:
+            conn.close()
+
+
+def attach_fantasy_news_to_player_stats(
+    conn: sqlite3.Connection, row: dict[str, Any], *, scraped_at: str
+) -> bool:
+    """Copy one fantasy_news row onto player_stats news for the matched player."""
+    player_id = row.get("player_id")
+    if not player_id:
+        return False
+    title = row.get("title") or ""
+    body = row.get("body") or ""
+    published = row.get("published_at") or row.get("published_iso") or ""
+    source = row.get("source") or "NBA.com Fantasy News"
+    ph = content_hash(player_id, "news", published, source, title, body)
+    return insert_stat_if_new(
+        conn,
+        {
+            "player_id": int(player_id),
+            "record_type": "news",
+            "published_at": published or None,
+            "source": source,
+            "title": title or None,
+            "body": body or None,
+            "content_hash": ph,
+            "scraped_at": scraped_at,
+        },
+    )
+
+
+_TITLE_PLAYER_RE = re.compile(
+    r"^(?:[A-Za-z0-9 .&'-]+?)'\s*(.+?):\s*",
+    re.IGNORECASE,
+)
+
+
+def _news_name_candidates(player_name: str | None, title: str | None) -> list[str]:
+    """Possible display names for matching a news row to a DB player."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in (player_name, title):
+        if not raw:
+            continue
+        text = str(raw).strip()
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    title_s = str(title or "").strip()
+    if title_s:
+        m = _TITLE_PLAYER_RE.match(title_s)
+        if m:
+            name = m.group(1).strip()
+            if name and name not in seen:
+                seen.add(name)
+                out.append(name)
+        # Fallback: "Player Name: headline" without Team's prefix
+        if ":" in title_s:
+            head = title_s.split(":", 1)[0].strip()
+            if head and len(head) < 60 and head not in seen:
+                seen.add(head)
+                out.append(head)
+    return out
+
+
+def relink_fantasy_news(conn: sqlite3.Connection, *, scraped_at: str | None = None) -> dict[str, int]:
+    """Re-match fantasy_news to players and ensure player_stats news rows exist."""
+    from datetime import datetime, timezone
+
+    ts = scraped_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    linked = 0
+    synced = 0
+    still_unmatched = 0
+    rows = conn.execute(
+        """
+        SELECT id, player_name, player_id, published_at, published_iso,
+               source, title, body
+        FROM fantasy_news
+        """
+    ).fetchall()
+    for r in rows:
+        row = dict(r)
+        pid = row.get("player_id")
+        if not pid:
+            for cand in _news_name_candidates(row.get("player_name"), row.get("title")):
+                pid = find_player_id_by_name(cand, conn=conn)
+                if pid:
+                    break
+            if pid:
+                conn.execute(
+                    "UPDATE fantasy_news SET player_id = ? WHERE id = ?",
+                    (pid, row["id"]),
+                )
+                row["player_id"] = pid
+                linked += 1
+            else:
+                still_unmatched += 1
+        if row.get("player_id") and attach_fantasy_news_to_player_stats(
+            conn, row, scraped_at=ts
+        ):
+            synced += 1
+    return {
+        "relinked": linked,
+        "player_news_synced": synced,
+        "still_unmatched": still_unmatched,
+    }
+
+
+def sync_fantasy_news_links() -> dict[str, Any]:
+    """Public helper: re-link unmatched fantasy news to current DB players."""
+    conn = connect()
+    try:
+        result = relink_fantasy_news(conn)
+        conn.commit()
+        counts = fantasy_news_counts(conn)
+        return {"ok": True, **result, **counts}
+    finally:
+        conn.close()
+
+
+def insert_fantasy_news_if_new(
+    conn: sqlite3.Connection, row: dict[str, Any]
+) -> bool:
+    try:
+        cols = [
+            "content_hash",
+            "player_name",
+            "player_id",
+            "nba_player_id",
+            "published_at",
+            "published_iso",
+            "source",
+            "title",
+            "body",
+            "team_name",
+            "scraped_at",
+        ]
+        conn.execute(
+            f"INSERT INTO fantasy_news ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+            tuple(row.get(c) for c in cols),
+        )
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+
+def list_fantasy_news(
+    *,
+    limit: int = 100,
+    matched_only: bool = False,
+    unmatched_only: bool = False,
+    match: str | None = None,
+    sources: list[str] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> list[dict[str, Any]]:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        limit = max(1, min(int(limit), 500))
+        match_mode = (match or "").strip().lower()
+        if matched_only:
+            match_mode = "matched"
+        if unmatched_only:
+            match_mode = "unmatched"
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        if match_mode == "matched":
+            clauses.append("f.player_id IS NOT NULL")
+        elif match_mode == "unmatched":
+            clauses.append("f.player_id IS NULL")
+
+        clean_sources = [str(s).strip() for s in (sources or []) if str(s).strip()]
+        if clean_sources:
+            placeholders = ", ".join("?" for _ in clean_sources)
+            clauses.append(f"f.source IN ({placeholders})")
+            params.extend(clean_sources)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = conn.execute(
+            f"""
+            SELECT
+                f.id,
+                f.player_name,
+                f.player_id,
+                f.nba_player_id,
+                f.published_at,
+                f.published_iso,
+                f.source,
+                f.title,
+                f.body,
+                f.team_name,
+                f.scraped_at,
+                p.full_name AS matched_name,
+                p.positions,
+                p.nba_team,
+                p.yahoo_rank
+            FROM fantasy_news f
+            LEFT JOIN players p ON p.id = f.player_id
+            {where}
+            ORDER BY
+                CASE WHEN f.published_iso IS NULL OR f.published_iso = '' THEN 1 ELSE 0 END,
+                f.published_iso DESC,
+                f.id DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
+def fantasy_news_counts(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        total = conn.execute("SELECT COUNT(*) AS c FROM fantasy_news").fetchone()["c"]
+        matched = conn.execute(
+            "SELECT COUNT(*) AS c FROM fantasy_news WHERE player_id IS NOT NULL"
+        ).fetchone()["c"]
+        by_source_rows = conn.execute(
+            """
+            SELECT COALESCE(source, '') AS source, COUNT(*) AS c
+            FROM fantasy_news
+            GROUP BY COALESCE(source, '')
+            ORDER BY c DESC, source
+            """
+        ).fetchall()
+        return {
+            "total": int(total),
+            "matched": int(matched),
+            "unmatched": int(total) - int(matched),
+            "by_source": {str(r["source"] or ""): int(r["c"]) for r in by_source_rows},
+            "sources": [str(r["source"] or "") for r in by_source_rows if r["source"]],
+        }
+    finally:
+        if own:
+            conn.close()
+
+
+def replace_injuries(
+    conn: sqlite3.Connection, rows: list[dict[str, Any]], *, scraped_at: str
+) -> dict[str, int]:
+    """Replace the full injuries snapshot and link known players."""
+    conn.execute("DELETE FROM injuries")
+    inserted = 0
+    matched = 0
+    for row in rows:
+        name = (row.get("player_name") or "").strip()
+        team = (row.get("team_name") or "").strip()
+        if not name or not team:
+            continue
+        player_id = find_player_id_by_name(name, conn=conn)
+        if player_id:
+            matched += 1
+        h = content_hash(
+            "injury",
+            team,
+            name,
+            row.get("position"),
+            row.get("updated_at"),
+            row.get("injury"),
+            row.get("injury_status"),
+            row.get("cbs_player_id"),
+        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO injuries (
+                    content_hash, team_name, player_name, player_id, position,
+                    updated_at, injury, injury_status, cbs_player_id, scraped_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    h,
+                    team,
+                    name,
+                    player_id,
+                    (row.get("position") or None),
+                    (row.get("updated_at") or None),
+                    (row.get("injury") or None),
+                    (row.get("injury_status") or None),
+                    (row.get("cbs_player_id") or None),
+                    scraped_at,
+                ),
+            )
+            inserted += 1
+        except sqlite3.IntegrityError:
+            continue
+    return {"inserted": inserted, "matched": matched}
+
+
+def list_injuries_by_team(
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    from nba_teams import enrich_team_group
+
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                i.id,
+                i.team_name,
+                i.player_name,
+                i.player_id,
+                i.position,
+                i.updated_at,
+                i.injury,
+                i.injury_status,
+                i.cbs_player_id,
+                i.scraped_at,
+                p.full_name AS matched_name,
+                p.yahoo_rank
+            FROM injuries i
+            LEFT JOIN players p ON p.id = i.player_id
+            ORDER BY i.team_name COLLATE NOCASE, i.player_name COLLATE NOCASE
+            """
+        ).fetchall()
+        groups_map: dict[str, list[dict[str, Any]]] = {}
+        scraped_at = None
+        for r in rows:
+            item = dict(r)
+            team = item.get("team_name") or "Unknown"
+            groups_map.setdefault(team, []).append(item)
+            if not scraped_at and item.get("scraped_at"):
+                scraped_at = item["scraped_at"]
+        groups = []
+        for team, players in groups_map.items():
+            meta = enrich_team_group(team)
+            groups.append(
+                {
+                    "team": team,
+                    "abbr": meta.get("abbr"),
+                    "logo": meta.get("logo"),
+                    "display_name": meta.get("display_name") or team,
+                    "count": len(players),
+                    "players": players,
+                }
+            )
+        return {
+            "groups": groups,
+            "team_count": len(groups),
+            "player_count": len(rows),
+            "scraped_at": scraped_at,
+        }
+    finally:
+        if own:
+            conn.close()
+
+
+def replace_roster_trends(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    source_label: str,
+    source_url: str,
+    rows: list[dict[str, Any]],
+    scraped_at: str,
+) -> dict[str, int]:
+    """Replace one trends source snapshot and link known players."""
+    conn.execute("DELETE FROM roster_trends WHERE source = ?", (source,))
+    inserted = 0
+    matched = 0
+    for row in rows:
+        name = (row.get("player_name") or "").strip()
+        if not name:
+            continue
+        player_id = find_player_id_by_name(name, conn=conn)
+        if player_id:
+            matched += 1
+        conn.execute(
+            """
+            INSERT INTO roster_trends (
+                source, source_label, source_url, rank, player_name, player_id,
+                positions, nba_team, roster_status, recent_views, today_views,
+                owned_pct, start_pct, adds, drops, trades, total, external_id, scraped_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source,
+                source_label,
+                source_url,
+                int(row.get("rank") or 0),
+                name,
+                player_id,
+                (row.get("positions") or None),
+                (row.get("nba_team") or None),
+                (row.get("roster_status") or None),
+                (row.get("recent_views") or None),
+                (row.get("today_views") or None),
+                (row.get("owned_pct") or None),
+                (row.get("start_pct") or None),
+                (row.get("adds") or None),
+                (row.get("drops") or None),
+                (row.get("trades") or None),
+                (row.get("total") or None),
+                (row.get("external_id") or None),
+                scraped_at,
+            ),
+        )
+        inserted += 1
+    return {"inserted": inserted, "matched": matched}
+
+
+def list_roster_trends(
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                t.*,
+                p.full_name AS matched_name,
+                p.yahoo_rank
+            FROM roster_trends t
+            LEFT JOIN players p ON p.id = t.player_id
+            ORDER BY t.source, t.rank ASC, t.id ASC
+            """
+        ).fetchall()
+        by_source: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            item = dict(r)
+            src = item.get("source") or "unknown"
+            bucket = by_source.setdefault(
+                src,
+                {
+                    "source": src,
+                    "source_label": item.get("source_label") or src,
+                    "source_url": item.get("source_url"),
+                    "scraped_at": item.get("scraped_at"),
+                    "players": [],
+                },
+            )
+            bucket["players"].append(item)
+        # Stable order: CBS first, then Yahoo
+        order = ["cbs_viewed", "yahoo_transactions"]
+        sections = []
+        seen = set()
+        for key in order:
+            if key in by_source:
+                sections.append(by_source[key])
+                seen.add(key)
+        for key, val in by_source.items():
+            if key not in seen:
+                sections.append(val)
+        return {
+            "sections": sections,
+            "player_count": len(rows),
+            "section_count": len(sections),
+        }
+    finally:
+        if own:
+            conn.close()
+
+
+def list_players_by_team(
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    """DB players grouped by NBA team, with that team's news attached per group."""
+    from nba_teams import enrich_team_group, team_keys_for
+
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        players = list_players(conn=conn)
+        buckets: dict[str, list[dict[str, Any]]] = {}
+        for p in players:
+            team = (p.get("nba_team") or "").strip() or "—"
+            buckets.setdefault(team, []).append(p)
+
+        player_team_by_id = {
+            int(p["id"]): (p.get("nba_team") or "").strip()
+            for p in players
+            if p.get("id") is not None
+        }
+
+        all_news = list_news_for_db_players(limit=500, conn=conn)
+        news_by_team: dict[str, list[dict[str, Any]]] = {t: [] for t in buckets}
+        team_key_map = {team: team_keys_for(team) for team in buckets}
+
+        for item in all_news:
+            item_keys = set()
+            item_keys |= team_keys_for(item.get("team_name"))
+            item_keys |= team_keys_for(item.get("nba_team"))
+            pid = item.get("player_id")
+            if pid is not None:
+                item_keys |= team_keys_for(player_team_by_id.get(int(pid)))
+
+            placed = False
+            if item_keys:
+                for team, keys in team_key_map.items():
+                    if keys & item_keys:
+                        news_by_team[team].append(item)
+                        placed = True
+            if placed:
+                continue
+            if pid is not None:
+                team = player_team_by_id.get(int(pid))
+                if team and team in news_by_team:
+                    news_by_team[team].append(item)
+
+        groups: list[dict[str, Any]] = []
+        for team in sorted(buckets.keys(), key=lambda t: (t == "—", t)):
+            roster = buckets[team]
+            roster.sort(
+                key=lambda p: (
+                    p.get("yahoo_rank") is None,
+                    p.get("yahoo_rank") if p.get("yahoo_rank") is not None else 10**9,
+                    p.get("full_name") or "",
+                )
+            )
+            team_news = news_by_team.get(team) or []
+            meta = enrich_team_group(team)
+            groups.append(
+                {
+                    "team": team,
+                    "abbr": meta.get("abbr"),
+                    "logo": meta.get("logo"),
+                    "display_name": meta.get("display_name") or team,
+                    "players": roster,
+                    "count": len(roster),
+                    "news": team_news,
+                    "news_count": len(team_news),
+                }
+            )
+
+        return {
+            "groups": groups,
+            "players": players,
+            "player_count": len(players),
+            "team_count": len(groups),
+        }
+    finally:
+        if own:
+            conn.close()
+
+
+def list_news_for_db_players(
+    *,
+    limit: int = 200,
+    conn: sqlite3.Connection | None = None,
+) -> list[dict[str, Any]]:
+    """All news tied to players that exist in the local DB (Yahoo + NBA.com)."""
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        limit = max(1, min(int(limit), 500))
+        fantasy = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT
+                    f.published_at,
+                    f.published_iso,
+                    f.source,
+                    f.title,
+                    f.body,
+                    f.player_id,
+                    f.player_name,
+                    f.team_name,
+                    p.full_name AS matched_name,
+                    p.nba_team,
+                    p.positions,
+                    p.yahoo_rank
+                FROM fantasy_news f
+                JOIN players p ON p.id = f.player_id
+                ORDER BY
+                    CASE WHEN f.published_iso IS NULL OR f.published_iso = '' THEN 1 ELSE 0 END,
+                    f.published_iso DESC,
+                    f.id DESC
+                """
+            ).fetchall()
+        ]
+        yahoo = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT
+                    s.published_at,
+                    NULL AS published_iso,
+                    s.source,
+                    s.title,
+                    s.body,
+                    s.player_id,
+                    p.full_name AS player_name,
+                    p.nba_team AS team_name,
+                    p.full_name AS matched_name,
+                    p.nba_team,
+                    p.positions,
+                    p.yahoo_rank
+                FROM player_stats s
+                JOIN players p ON p.id = s.player_id
+                WHERE s.record_type = 'news'
+                ORDER BY s.id DESC
+                """
+            ).fetchall()
+        ]
+
+        by_title: dict[str, dict[str, Any]] = {}
+        untitled: list[dict[str, Any]] = []
+        for row in fantasy + yahoo:
+            title_key = normalize_player_name(row.get("title") or "")
+            if not title_key:
+                untitled.append(row)
+                continue
+            prev = by_title.get(title_key)
+            if prev is None or len(row.get("body") or "") > len(prev.get("body") or ""):
+                by_title[title_key] = row
+        merged = list(by_title.values()) + untitled
+
+        with_iso = [n for n in merged if n.get("published_iso")]
+        without_iso = [n for n in merged if not n.get("published_iso")]
+        with_iso.sort(key=lambda n: str(n.get("published_iso") or ""), reverse=True)
+        merged = with_iso + without_iso
+        return merged[:limit]
+    finally:
+        if own:
+            conn.close()
 
 
 def list_players(conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
@@ -393,18 +1139,46 @@ def get_player_detail(
             "SELECT 1 FROM watchlist WHERE player_id = ?", (player_id,)
         ).fetchone()
         player["is_favourite"] = 1 if fav else 0
-        news = [
+        news_rows = [
             dict(r)
             for r in conn.execute(
                 """
-                SELECT published_at, source, title, body, scraped_at
+                SELECT published_at, source, title, body, scraped_at, NULL AS published_iso
                 FROM player_stats
                 WHERE player_id = ? AND record_type = 'news'
-                ORDER BY id DESC
                 """,
                 (player_id,),
             ).fetchall()
         ]
+        fantasy_rows = [
+            dict(r)
+            for r in conn.execute(
+                """
+                SELECT published_at, source, title, body, scraped_at, published_iso
+                FROM fantasy_news
+                WHERE player_id = ?
+                """,
+                (player_id,),
+            ).fetchall()
+        ]
+        # Dedupe by title (Yahoo often re-saves with a longer body; NBA.com may
+        # mirror the same Rotowire headline). Keep the longest body.
+        by_title: dict[str, dict[str, Any]] = {}
+        untitled: list[dict[str, Any]] = []
+        for row in fantasy_rows + news_rows:
+            title_key = normalize_player_name(row.get("title") or "")
+            if not title_key:
+                untitled.append(row)
+                continue
+            prev = by_title.get(title_key)
+            if prev is None or len(row.get("body") or "") > len(prev.get("body") or ""):
+                by_title[title_key] = row
+        news = list(by_title.values()) + untitled
+
+        with_iso = [n for n in news if n.get("published_iso")]
+        without_iso = [n for n in news if not n.get("published_iso")]
+        with_iso.sort(key=lambda n: str(n.get("published_iso") or ""), reverse=True)
+        news = with_iso + without_iso
         game_logs = [
             dict(r)
             for r in conn.execute(

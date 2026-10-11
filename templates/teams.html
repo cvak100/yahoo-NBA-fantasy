@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teams · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Teams</h1>
+        <p class="sub">Players from your DB by NBA team — expand a team for roster and that team’s news.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="btnRefreshTeams">Refresh</button>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="teams-layout">
+      <p class="panel-sub" id="teamsSub">Loading…</p>
+      <div id="teamGroups" class="team-groups"></div>
+    </main>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+
+  <script src="{{ url_for('static', filename='js/nba-teams.js') }}?v=18"></script>
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
+  <script src="{{ url_for('static', filename='js/teams.js') }}?v=20"></script>
+</body>
+</html>

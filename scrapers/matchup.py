@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 
 import config
+from jobs import interruptible_sleep, raise_if_cancelled
 
 _TEAM_HREF_RE = re.compile(
     rf"/nba/{re.escape(config.LEAGUE_ID)}/(\d+)(?:[/?#]|$)"
@@ -158,41 +159,45 @@ def _parse_category_table(driver: WebDriver) -> list[dict[str, Any]]:
     return cats
 
 
-def scrape_my_matchup_detail(driver: WebDriver, my_team_id: str | None) -> dict[str, Any]:
-    url = (
-        f"{config.LEAGUE_URL}/{my_team_id}/matchup"
-        if my_team_id
-        else f"{config.LEAGUE_URL}/matchup"
-    )
-    driver.get(url)
-    time.sleep(config.PAGE_LOAD_WAIT_SEC)
+def _parse_my_matchup_page(
+    driver: WebDriver, my_team_id: str | None, *, include_categories: bool = True
+) -> dict[str, Any]:
+    """Parse the currently loaded team matchup page."""
+    parsed = driver.execute_script(
+        """
+        const big = [...document.querySelectorAll('.Fz-xxl')]
+          .map((e) => (e.textContent || '').trim())
+          .filter(Boolean);
+        let homeName = big[0] || null;
+        let awayName = big.length >= 4 ? big[3] : (big[1] || null);
+        let homeCats = null, awayCats = null;
+        if (big.length >= 4 && /^\\d+$/.test(big[1]) && /^\\d+$/.test(big[2])) {
+          homeCats = Number(big[1]);
+          awayCats = Number(big[2]);
+          awayName = big[3];
+        }
+        const body = document.body.innerText || '';
+        const wm = body.match(/Week\\s+(\\d+)/i);
+        const week = wm ? Number(wm[1]) : null;
+        const sel = document.querySelector('select');
+        const weeks = sel
+          ? [...sel.options].map((o) => {
+              const tm = (o.textContent || '').match(/Week\\s+(\\d+)/i);
+              const vm = String(o.value || '').match(/week=(\\d+)/i);
+              return tm ? Number(tm[1]) : (vm ? Number(vm[1]) : null);
+            }).filter((n) => Number.isFinite(n))
+          : [];
+        return { homeName, awayName, homeCats, awayCats, week, weeks };
+        """
+    ) or {}
 
-    # Names + category scores from big headers
-    big = [
-        e.text.strip()
-        for e in driver.find_elements(By.CSS_SELECTOR, ".Fz-xxl")
-        if (e.text or "").strip()
-    ]
-    # Pattern often: [HomeName, homeScore, awayScore, AwayName]
-    home_name = big[0] if len(big) >= 1 else None
-    away_name = big[-1] if len(big) >= 4 else (big[1] if len(big) == 2 else None)
-    home_cats_won = None
-    away_cats_won = None
-    if len(big) >= 4 and big[1].isdigit() and big[2].isdigit():
-        home_cats_won = int(big[1])
-        away_cats_won = int(big[2])
-        away_name = big[3]
+    home_name = parsed.get("homeName")
+    away_name = parsed.get("awayName")
+    home_cats_won = parsed.get("homeCats")
+    away_cats_won = parsed.get("awayCats")
+    week_label = parsed.get("week")
+    categories = _parse_category_table(driver) if include_categories else []
 
-    # Week label
-    week_label = None
-    body_text = driver.find_element(By.TAG_NAME, "body").text
-    m = re.search(r"Week\s+(\d+)", body_text)
-    if m:
-        week_label = int(m.group(1))
-
-    categories = _parse_category_table(driver)
-
-    # Opponent / home ids from URL or links near header
     home_id = my_team_id
     away_id = None
     for a in driver.find_elements(By.CSS_SELECTOR, f'a[href*="/nba/{config.LEAGUE_ID}/"]'):
@@ -207,6 +212,7 @@ def scrape_my_matchup_detail(driver: WebDriver, my_team_id: str | None) -> dict[
         if home_name and text == home_name:
             home_id = tid
 
+    # Ensure my team orientation: keep Yahoo's home/away as displayed.
     return {
         "week": week_label,
         "url": driver.current_url.split("#")[0],
@@ -222,7 +228,100 @@ def scrape_my_matchup_detail(driver: WebDriver, my_team_id: str | None) -> dict[
         },
         "categories": categories,
         "is_mine": True,
+        "available_weeks": list(parsed.get("weeks") or []),
     }
+
+
+def scrape_my_matchup_detail(driver: WebDriver, my_team_id: str | None) -> dict[str, Any]:
+    url = (
+        f"{config.LEAGUE_URL}/{my_team_id}/matchup"
+        if my_team_id
+        else f"{config.LEAGUE_URL}/matchup"
+    )
+    raise_if_cancelled()
+    driver.get(url)
+    interruptible_sleep(config.PAGE_LOAD_WAIT_SEC)
+    return _parse_my_matchup_page(driver, my_team_id, include_categories=True)
+
+
+def scrape_my_season_schedule(
+    driver: WebDriver,
+    *,
+    my_team_id: str | None,
+    teams: list[dict[str, Any]] | None = None,
+    current_week: int | None = None,
+) -> list[dict[str, Any]]:
+    """Scrape all weekly matchups for my team (opponent + cat score + categories)."""
+    if not my_team_id:
+        return []
+
+    by_id = _team_name_map(teams or [])
+    base = f"{config.LEAGUE_URL}/{my_team_id}/matchup"
+    raise_if_cancelled()
+    driver.get(base)
+    interruptible_sleep(max(1.5, float(getattr(config, "PAGE_LOAD_WAIT_SEC", 4)) * 0.45))
+    first = _parse_my_matchup_page(driver, my_team_id, include_categories=True)
+    weeks = first.get("available_weeks") or []
+    if not weeks and first.get("week"):
+        weeks = [int(first["week"])]
+    weeks = sorted({int(w) for w in weeks if w is not None})
+
+    schedule: list[dict[str, Any]] = []
+    wait = max(1.1, float(getattr(config, "PAGE_LOAD_WAIT_SEC", 4)) * 0.35)
+
+    for week in weeks:
+        raise_if_cancelled()
+        if week == first.get("week"):
+            detail = first
+        else:
+            driver.get(f"{base}?week={week}&module=matchup&mid1={my_team_id}")
+            interruptible_sleep(wait)
+            # Full cats for every week so dashboard nav can show them.
+            detail = _parse_my_matchup_page(driver, my_team_id, include_categories=True)
+
+        home = detail.get("home") or {}
+        away = detail.get("away") or {}
+        # Enrich logos/managers from league team list
+        for side in (home, away):
+            tid = str(side.get("team_id") or "")
+            info = by_id.get(tid) or {}
+            if info.get("manager") and not side.get("manager"):
+                side["manager"] = info.get("manager")
+            if info.get("logo"):
+                side["logo"] = info.get("logo")
+            if info.get("name") and not side.get("name"):
+                side["name"] = info.get("name")
+
+        w = detail.get("week") or week
+        schedule.append(
+            {
+                "week": w,
+                "url": detail.get("url"),
+                "home": home,
+                "away": away,
+                "categories": detail.get("categories") or [],
+                "score": {
+                    "home": home.get("categories_won"),
+                    "away": away.get("categories_won"),
+                },
+                "is_mine": True,
+                "is_current": bool(current_week is not None and int(w) == int(current_week)),
+            }
+        )
+        print(f"  my schedule week {w}: {home.get('name')} vs {away.get('name')}", flush=True)
+
+    # Mark current if not set
+    if current_week is not None:
+        for row in schedule:
+            row["is_current"] = int(row.get("week") or 0) == int(current_week)
+    elif schedule:
+        # Prefer the first page's week as current
+        cur = first.get("week")
+        for row in schedule:
+            row["is_current"] = row.get("week") == cur
+
+    schedule.sort(key=lambda r: int(r.get("week") or 0))
+    return schedule
 
 
 def scrape_matchups(
@@ -231,8 +330,9 @@ def scrape_matchups(
     teams: list[dict[str, Any]],
     my_team_id: str | None,
 ) -> dict[str, Any]:
+    raise_if_cancelled()
     driver.get(config.LEAGUE_URL)
-    time.sleep(config.PAGE_LOAD_WAIT_SEC)
+    interruptible_sleep(config.PAGE_LOAD_WAIT_SEC)
 
     week, pairs = _parse_matchup_links(driver)
     by_id = _team_name_map(teams)
@@ -264,6 +364,8 @@ def scrape_matchups(
         )
 
     detail = scrape_my_matchup_detail(driver, my_team_id)
+    if week is None:
+        week = detail.get("week")
 
     # Enrich my row with category score from detail
     for mrow in matchups:
@@ -273,9 +375,7 @@ def scrape_matchups(
             "home": detail.get("home", {}).get("categories_won"),
             "away": detail.get("away", {}).get("categories_won"),
         }
-        # Align names if missing
         if detail.get("home", {}).get("name"):
-            # Ensure home/away orientation matches detail if possible
             if mrow["home"]["team_id"] == detail["home"].get("team_id"):
                 pass
             elif mrow["away"]["team_id"] == detail["home"].get("team_id"):
@@ -286,13 +386,32 @@ def scrape_matchups(
                         "away": detail.get("away", {}).get("categories_won"),
                     }
 
-    if week is None:
-        week = detail.get("week")
+    my_schedule = scrape_my_season_schedule(
+        driver,
+        my_team_id=my_team_id,
+        teams=teams,
+        current_week=int(week) if week is not None else None,
+    )
+
+    # Prefer schedule entry for current week as my_matchup (richer logos).
+    current_mine = next((r for r in my_schedule if r.get("is_current")), None)
+    if current_mine:
+        detail = {
+            **detail,
+            "week": current_mine.get("week"),
+            "url": current_mine.get("url") or detail.get("url"),
+            "home": current_mine.get("home") or detail.get("home"),
+            "away": current_mine.get("away") or detail.get("away"),
+            "categories": current_mine.get("categories") or detail.get("categories"),
+            "score": current_mine.get("score"),
+            "is_mine": True,
+        }
 
     return {
         "league_id": config.LEAGUE_ID,
         "week": week,
         "matchups": matchups,
         "my_matchup": detail,
+        "my_schedule": my_schedule,
         "source_url": f"{config.LEAGUE_URL}/matchup",
     }

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Injuries · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Injuries</h1>
+        <p class="sub">CBS Sports injury report by team — click a team to expand players.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnRefreshInjuries" title="Fetch from cbssports.com/nba/injuries">
+          <span class="btn-label">Refresh injuries</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+        <button type="button" class="btn ghost" id="btnReloadInjuries">Reload</button>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+    <div id="jobBar" class="job-bar" hidden>
+      <div class="job-bar-head">
+        <strong id="jobBarLabel">Job</strong>
+        <div class="job-bar-head-meta">
+          <button type="button" id="btnPauseResume" class="btn ghost tiny job-pause-resume" hidden data-mode="pause">Pause</button>
+          <button type="button" id="btnCancelJob" class="btn ghost tiny job-cancel" hidden>Stop</button>
+          <span id="jobBarMeta" class="job-bar-meta">—</span>
+        </div>
+      </div>
+      <p id="jobBarText" class="job-bar-text">Starting…</p>
+      <div class="job-bar-track" aria-hidden="true">
+        <div class="job-bar-fill" id="jobBarFill"></div>
+      </div>
+      <p class="job-bar-hint">Keep Chrome debug open. Stop cancels the whole run.</p>
+    </div>
+
+    <main class="teams-layout">
+      <p class="panel-sub" id="injuriesSub">Loading…</p>
+      <div id="injuryGroups" class="team-groups"></div>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/nba-teams.js') }}?v=18"></script>
+  <script src="{{ url_for('static', filename='js/injuries.js') }}?v=21"></script>
+</body>
+</html>

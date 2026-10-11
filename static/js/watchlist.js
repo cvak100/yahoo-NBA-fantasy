@@ -22,7 +22,7 @@
 
   function playerRow(p) {
     return `
-      <tr>
+      <tr class="clickable" data-player-id="${p.id}">
         <td class="num">${p.yahoo_rank ?? "—"}</td>
         <td>
           <strong>${esc(p.full_name)}</strong>
@@ -97,8 +97,17 @@
       })
       .join("");
 
+    root.querySelectorAll("tr[data-player-id]").forEach((tr) => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("button, .fav-btn")) return;
+        const id = Number(tr.dataset.playerId);
+        if (Number.isFinite(id) && window.PlayerDetail) window.PlayerDetail.open(id);
+      });
+    });
+
     root.querySelectorAll("[data-unfav]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
         const id = Number(btn.dataset.unfav);
         btn.disabled = true;
         try {
@@ -109,6 +118,7 @@
             btn.disabled = false;
             return;
           }
+          if (window.PlayerDetail?.getCurrentId?.() === id) window.PlayerDetail.close();
           await loadWatchlist();
         } catch (err) {
           showAlert(String(err));
@@ -133,6 +143,17 @@
     }
   }
 
+  window.PlayerDetail?.init({
+    onAlert: showAlert,
+    hideDelete: true,
+    onFavouriteChange: async (playerId, isFav) => {
+      if (!isFav) {
+        window.PlayerDetail.close();
+        await loadWatchlist();
+      }
+    },
+  });
+
   $("#btnRefreshWatchlist")?.addEventListener("click", loadWatchlist);
   $("#btnClearWatchlist")?.addEventListener("click", async () => {
     if (!window.confirm("Clear the entire watchlist?")) return;
@@ -148,6 +169,7 @@
       }
       const n = data.cleared ?? 0;
       showAlert(n ? `Cleared ${n} favourite${n === 1 ? "" : "s"}.` : "Watchlist was already empty.");
+      window.PlayerDetail?.close?.();
       await loadWatchlist();
     } catch (err) {
       showAlert(String(err));

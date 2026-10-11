@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Free Players · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
+</head>
+<body data-league-id="{{ league_id }}">
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Free Players</h1>
+        <p class="sub">Top 100 available → best 10 by L7/L14 stats, Research Adds, and L7 ranks.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnAnalyzeFree" title="Scrape Yahoo free agents and score them">
+          <span class="btn-label">Analyze</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+        <button type="button" class="btn ghost" id="btnReloadFree">Reload</button>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+    <div id="jobBar" class="job-bar" hidden>
+      <div class="job-bar-head">
+        <strong id="jobBarLabel">Job</strong>
+        <div class="job-bar-head-meta">
+          <button type="button" id="btnPauseResume" class="btn ghost tiny job-pause-resume" hidden data-mode="pause">Pause</button>
+          <button type="button" id="btnCancelJob" class="btn ghost tiny job-cancel" hidden>Stop</button>
+          <span id="jobBarMeta" class="job-bar-meta">—</span>
+        </div>
+      </div>
+      <p id="jobBarText" class="job-bar-text">Starting…</p>
+      <div class="job-bar-track" aria-hidden="true">
+        <div class="job-bar-fill" id="jobBarFill"></div>
+      </div>
+      <p class="job-bar-hint">Keep Chrome debug open. Stop cancels the whole run.</p>
+    </div>
+
+    <main class="free-players-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Top 10 free agents</h2>
+            <p class="panel-sub" id="freeSub">Loading…</p>
+          </div>
+        </div>
+        <p class="free-score-note" id="freeNote" hidden></p>
+        <div class="table-wrap">
+          <table class="players-table free-players-table sortable-table" id="freeTable">
+            <thead>
+              <tr>
+                <th class="num">#</th>
+                <th>Player</th>
+                <th>Pos</th>
+                <th class="num score-col">Score</th>
+                <th class="num">L7 Rank</th>
+                <th class="num">L7 Pts</th>
+                <th class="num">L7 Reb</th>
+                <th class="num">L7 Ast</th>
+                <th class="num">L14 Pts</th>
+                <th class="num">L14 Reb</th>
+                <th class="num">L14 Ast</th>
+                <th class="num">Adds</th>
+                <th class="num">Season AR</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="freeBody">
+              <tr><td colspan="14" class="muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
+  <script src="{{ url_for('static', filename='js/free-players.js') }}?v=4"></script>
+</body>
+</html>

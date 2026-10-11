@@ -222,12 +222,51 @@ def search_players(driver: WebDriver, query: str, *, limit: int = 25) -> dict[st
     }
 
 
+def discover_stat1_codes(driver: WebDriver) -> dict[str, str]:
+    """Read Yahoo players page dropdown → codes for Last 7 / Last 14 day averages."""
+    url = f"{config.LEAGUE_URL}/players?status=A&sort=AR&jsenabled=1"
+    driver.get(url)
+    time.sleep(max(1.5, float(config.PAGE_LOAD_WAIT_SEC) * 0.5))
+    options = driver.execute_script(
+        """
+        const out = [];
+        for (const sel of document.querySelectorAll('select')) {
+          for (const opt of sel.options || []) {
+            const v = (opt.value || '').trim();
+            const t = (opt.textContent || '').trim();
+            if (v && t) out.push({ value: v, text: t });
+          }
+        }
+        return out;
+        """
+    ) or []
+    found: dict[str, str] = {}
+    for opt in options:
+        text = str(opt.get("text") or "").lower()
+        value = str(opt.get("value") or "").strip()
+        if not value:
+            continue
+        if "last 7" in text and "avg" in text and "std" not in text:
+            found.setdefault("l7_avg", value)
+        elif "last 14" in text and "avg" in text and "std" not in text:
+            found.setdefault("l14_avg", value)
+        elif "last 7" in text and "total" in text and "std" not in text:
+            found.setdefault("l7_total", value)
+        elif "last 14" in text and "total" in text and "std" not in text:
+            found.setdefault("l14_total", value)
+    # Fallbacks seen across Yahoo fantasy seasons
+    found.setdefault("l7_avg", "S_AL7")
+    found.setdefault("l14_avg", "S_AL14")
+    return found
+
+
 def ranked_players(
     driver: WebDriver,
     *,
     limit: int = 25,
     status: str = "ALL",
     sort: str = "AR",
+    stat1: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch players across Yahoo pages (25 per page via count=offset)."""
     players: list[dict[str, Any]] = []
@@ -236,11 +275,15 @@ def ranked_players(
     seen: set[str] = set()
     empty_pages = 0
 
-    while len(players) < limit and offset < 1000:
+    # Yahoo pages are 25 players; ~800–900 NBA names → keep scanning past 500.
+    max_offset = max(2000, int(limit) + 100)
+    while len(players) < limit and offset < max_offset:
         url = (
             f"{config.LEAGUE_URL}/players?status={quote_plus(status)}"
             f"&sort={quote_plus(sort)}&count={offset}&jsenabled=1"
         )
+        if stat1:
+            url += f"&stat1={quote_plus(stat1)}"
         driver.get(url)
         time.sleep(config.PAGE_LOAD_WAIT_SEC)
         page = _parse_players_table(driver, limit=page_size)

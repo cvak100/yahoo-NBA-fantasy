@@ -82,7 +82,7 @@ def cmd_serve() -> int:
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         _kill_port(port)
     print(f"Dashboard: http://{host}:{port}")
-    print(f"Players:   http://{host}:{port}/search")
+    print(f"Players:   http://{host}:{port}/players")
     print(f"Watchlist: http://{host}:{port}/watchlist")
     # Templates/static reload without restart; Python files auto-reload via reloader.
     # Note: saving .py mid-scrape will interrupt that job — wait for jobs to finish first.

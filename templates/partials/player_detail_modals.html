@@ -1,0 +1,71 @@
+<div class="modal" id="detailModal" hidden>
+  <div class="modal-backdrop" data-close-modal></div>
+  <div class="modal-dialog panel detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailName">
+    <div class="panel-head">
+      <div>
+        <h2 id="detailName">Player</h2>
+        <p class="panel-sub" id="detailMeta">—</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn ghost tiny fav-btn" id="btnFavPlayer" aria-pressed="false" title="Add to watchlist">☆ Watchlist</button>
+        <button type="button" class="btn danger tiny" id="btnDeletePlayer">Delete</button>
+        <button type="button" class="btn ghost" id="btnCloseDetail" data-close-modal>Close</button>
+      </div>
+    </div>
+    <div class="detail-stack">
+      <div class="detail-grid detail-grid-top">
+        <section class="detail-block">
+          <div class="detail-block-head">
+            <h3 class="section-label">Game log</h3>
+            <button type="button" class="btn ghost tiny" id="btnOpenGameLog" hidden>Full history</button>
+          </div>
+          <div id="detailGames" class="muted">—</div>
+        </section>
+        <section class="detail-block">
+          <h3 class="section-label">Depth chart</h3>
+          <div id="detailDepth" class="muted">—</div>
+        </section>
+      </div>
+
+      <section class="detail-block detail-season">
+        <h3 class="section-label">Season Stats</h3>
+        <div id="detailSeasonTotal" class="muted">—</div>
+      </section>
+      <section class="detail-block detail-season-avg">
+        <h3 class="section-label">Season Stats (average)</h3>
+        <div id="detailSeasonAvg" class="muted">—</div>
+      </section>
+
+      <section class="detail-block detail-news">
+        <div class="detail-news-head">
+          <h3 class="section-label">Latest news</h3>
+          <label class="show-limit" for="detailNewsLimit" id="detailNewsLimitWrap" hidden>
+            <span>Show</span>
+            <select id="detailNewsLimit" aria-label="News limit">
+              <option value="5" selected>5</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+        </div>
+        <p class="panel-sub" id="detailNewsMeta" hidden></p>
+        <div id="detailNews" class="muted">—</div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-over" id="gameLogModal" hidden>
+  <div class="modal-backdrop" data-close-gamelog></div>
+  <div class="modal-dialog panel detail-panel gamelog-dialog" role="dialog" aria-modal="true" aria-labelledby="gameLogTitle">
+    <div class="panel-head">
+      <div>
+        <h2 id="gameLogTitle">Game log</h2>
+        <p class="panel-sub" id="gameLogMeta">—</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn ghost" data-close-gamelog>Close</button>
+      </div>
+    </div>
+    <div id="gameLogFull" class="table-wrap"></div>
+  </div>
+</div>

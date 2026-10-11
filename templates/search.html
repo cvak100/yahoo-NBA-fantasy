@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=10">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -34,13 +34,17 @@
     <div id="jobBar" class="job-bar" hidden>
       <div class="job-bar-head">
         <strong id="jobBarLabel">Job</strong>
-        <span id="jobBarMeta" class="job-bar-meta">—</span>
+        <div class="job-bar-head-meta">
+          <button type="button" id="btnPauseResume" class="btn ghost tiny job-pause-resume" hidden data-mode="pause">Pause</button>
+          <button type="button" id="btnCancelJob" class="btn ghost tiny job-cancel" hidden>Stop</button>
+          <span id="jobBarMeta" class="job-bar-meta">—</span>
+        </div>
       </div>
       <p id="jobBarText" class="job-bar-text">Starting…</p>
       <div class="job-bar-track" aria-hidden="true">
         <div class="job-bar-fill" id="jobBarFill"></div>
       </div>
-      <p class="job-bar-hint">You can keep browsing the table, open details, and delete players while this runs. Yahoo search/add/refresh wait until it finishes.</p>
+      <p class="job-bar-hint">Stop cancels the whole Yahoo job. You can still browse the table while it runs.</p>
     </div>
 
     <main class="search-layout players-layout">
@@ -51,6 +55,15 @@
             <p class="panel-sub" id="dbSub">Loading…</p>
           </div>
           <div class="actions bulk-actions">
+            <label class="player-search" for="dbPlayerSearch">
+              <span class="sr-only">Search players</span>
+              <input
+                id="dbPlayerSearch"
+                type="search"
+                placeholder="Search players…"
+                autocomplete="off"
+              >
+            </label>
             <label class="show-limit" for="dbShowLimit">
               <span>Show</span>
               <select id="dbShowLimit" aria-label="Number of players to show">
@@ -91,6 +104,22 @@
               <span class="btn-spinner" hidden></span>
             </button>
           </div>
+        </div>
+        <div class="pos-filters" id="posFilters" role="group" aria-label="Filter by position">
+          <button type="button" class="pos-filter" data-pos="PG" aria-pressed="false">PG</button>
+          <button type="button" class="pos-filter" data-pos="SG" aria-pressed="false">SG</button>
+          <button type="button" class="pos-filter" data-pos="G" aria-pressed="false">G</button>
+          <button type="button" class="pos-filter" data-pos="SF" aria-pressed="false">SF</button>
+          <button type="button" class="pos-filter" data-pos="PF" aria-pressed="false">PF</button>
+          <button type="button" class="pos-filter" data-pos="F" aria-pressed="false">F</button>
+          <button type="button" class="pos-filter" data-pos="C" aria-pressed="false">C</button>
+          <button
+            type="button"
+            class="pos-filter pos-filter-multi"
+            id="posFilterMulti"
+            aria-pressed="false"
+            title="Players eligible at more than one position"
+          >Multi-pos</button>
         </div>
         <div class="table-wrap">
           <table class="players-table wide-stats" id="dbTable">
@@ -176,51 +205,7 @@
     </main>
   </div>
 
-  <div class="modal" id="detailModal" hidden>
-    <div class="modal-backdrop" data-close-modal></div>
-    <div class="modal-dialog panel detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailName">
-      <div class="panel-head">
-        <div>
-          <h2 id="detailName">Player</h2>
-          <p class="panel-sub" id="detailMeta">—</p>
-        </div>
-        <div class="actions">
-          <button type="button" class="btn ghost tiny fav-btn" id="btnFavPlayer" aria-pressed="false" title="Add to watchlist">☆ Watchlist</button>
-          <button type="button" class="btn danger tiny" id="btnDeletePlayer">Delete</button>
-          <button type="button" class="btn ghost" id="btnCloseDetail" data-close-modal>Close</button>
-        </div>
-      </div>
-      <div class="detail-stack">
-        <div class="detail-grid detail-grid-top">
-          <section class="detail-block">
-            <div class="detail-block-head">
-              <h3 class="section-label">Game log</h3>
-              <button type="button" class="btn ghost tiny" id="btnOpenGameLog" hidden>Full history</button>
-            </div>
-            <div id="detailGames" class="muted">—</div>
-          </section>
-          <section class="detail-block">
-            <h3 class="section-label">Depth chart</h3>
-            <div id="detailDepth" class="muted">—</div>
-          </section>
-        </div>
-
-        <section class="detail-block detail-season">
-          <h3 class="section-label">Season Stats</h3>
-          <div id="detailSeasonTotal" class="muted">—</div>
-        </section>
-        <section class="detail-block detail-season-avg">
-          <h3 class="section-label">Season Stats (average)</h3>
-          <div id="detailSeasonAvg" class="muted">—</div>
-        </section>
-
-        <section class="detail-block detail-news">
-          <h3 class="section-label">Latest news</h3>
-          <div id="detailNews" class="muted">—</div>
-        </section>
-      </div>
-    </div>
-  </div>
+  {% include "partials/player_detail_modals.html" %}
 
   <div class="modal modal-over" id="autoAddModal" hidden>
     <div class="modal-backdrop" data-close-autoadd></div>
@@ -228,7 +213,7 @@
       <div class="panel-head">
         <div>
           <h2 id="autoAddTitle">Add auto player</h2>
-          <p class="panel-sub">Pick how many top-ranked players to add with full details.</p>
+          <p class="panel-sub">Pick how many top-ranked Yahoo players to add with full details. All walks the full list (~800).</p>
         </div>
         <div class="actions">
           <button type="button" class="btn ghost" data-close-autoadd>Close</button>
@@ -250,6 +235,11 @@
           <span class="auto-add-choice-main">200</span>
           <span class="auto-add-choice-sub">Slow · keep Chrome open</span>
         </label>
+        <label class="auto-add-choice">
+          <input type="radio" name="autoAddLimit" value="all">
+          <span class="auto-add-choice-main">All</span>
+          <span class="auto-add-choice-sub">All · very slow</span>
+        </label>
       </div>
       <div class="auto-add-footer">
         <button type="button" class="btn primary" id="btnAutoAddConfirm">
@@ -260,22 +250,7 @@
     </div>
   </div>
 
-  <div class="modal modal-over" id="gameLogModal" hidden>
-    <div class="modal-backdrop" data-close-gamelog></div>
-    <div class="modal-dialog panel detail-panel gamelog-dialog" role="dialog" aria-modal="true" aria-labelledby="gameLogTitle">
-      <div class="panel-head">
-        <div>
-          <h2 id="gameLogTitle">Game log</h2>
-          <p class="panel-sub" id="gameLogMeta">—</p>
-        </div>
-        <div class="actions">
-          <button type="button" class="btn ghost" data-close-gamelog>Close</button>
-        </div>
-      </div>
-      <div id="gameLogFull" class="table-wrap"></div>
-    </div>
-  </div>
-
-  <script src="{{ url_for('static', filename='js/search.js') }}?v=10"></script>
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
+  <script src="{{ url_for('static', filename='js/search.js') }}?v=19"></script>
 </body>
 </html>

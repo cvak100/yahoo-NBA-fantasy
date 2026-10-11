@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roster · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Roster</h1>
+        <p class="sub">Your fantasy lineup by slot — stats and news for your players only.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="btnRefreshRoster">Refresh</button>
+        {% include "partials/settings_link.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="roster-page-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 id="rosterTeamName">My Team</h2>
+            <p class="panel-sub" id="rosterSub">Loading…</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="players-table wide-stats roster-detail-table">
+            <thead>
+              <tr>
+                <th class="pos-col">Pos</th>
+                <th>Player</th>
+                <th class="num">Rank</th>
+                <th class="num">Owned</th>
+                <th class="num">GP</th>
+                <th class="num">FG%</th>
+                <th class="num">FT%</th>
+                <th class="num">3PT</th>
+                <th class="num">PTS</th>
+                <th class="num">REB</th>
+                <th class="num">AST</th>
+                <th class="num">STL</th>
+                <th class="num">BLK</th>
+                <th class="num">TO</th>
+                <th>Slot</th>
+              </tr>
+            </thead>
+            <tbody id="rosterBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="rosterNewsPanel">
+        <div class="team-news-block" id="rosterNewsBlock">
+          <div class="team-news-head">
+            <h3 class="team-section-title">News <span class="panel-sub" id="rosterNewsMeta"></span></h3>
+            <label class="show-limit" for="rosterNewsLimit">
+              <span>Show</span>
+              <select id="rosterNewsLimit" aria-label="News limit">
+                <option value="10" selected>10</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+          </div>
+          <ul class="team-news-list" id="rosterNewsList"></ul>
+          <p class="muted" id="rosterNewsEmpty" hidden>No news for your roster players yet.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
+  <script src="{{ url_for('static', filename='js/roster.js') }}?v=1"></script>
+</body>
+</html>

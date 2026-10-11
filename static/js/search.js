@@ -86,6 +86,7 @@
 
   let allDbPlayers = [];
   const SHOW_LIMIT_KEY = "yahoonba_db_show_limit";
+  const POS_FILTER_KEY = "yahoonba_db_pos_filters";
 
   function getShowLimit() {
     const sel = $("#dbShowLimit");
@@ -95,19 +96,142 @@
     return Number.isFinite(n) && n > 0 ? n : 20;
   }
 
+  function parsePositions(positions) {
+    if (!positions) return [];
+    const out = [];
+    for (const part of String(positions).replaceAll("/", ",").split(",")) {
+      const pos = part.trim();
+      if (pos && !out.includes(pos)) out.push(pos);
+    }
+    return out;
+  }
+
+  function getSelectedPositions() {
+    return [...document.querySelectorAll("#posFilters [data-pos].is-on")].map(
+      (el) => el.dataset.pos
+    );
+  }
+
+  function multiPosOnly() {
+    return !!$("#posFilterMulti")?.classList.contains("is-on");
+  }
+
+  function hasActivePosFilter() {
+    return getSelectedPositions().length > 0 || multiPosOnly();
+  }
+
+  function playerMatchesPositions(p) {
+    const positions = parsePositions(p.positions);
+    if (multiPosOnly() && positions.length < 2) return false;
+    const selected = getSelectedPositions();
+    if (!selected.length) return true;
+    return selected.some((pos) => positions.includes(pos));
+  }
+
+  function persistPosFilters() {
+    try {
+      localStorage.setItem(
+        POS_FILTER_KEY,
+        JSON.stringify({
+          positions: getSelectedPositions(),
+          multi: multiPosOnly(),
+        })
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function restorePosFilters() {
+    const root = $("#posFilters");
+    if (!root) return;
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem(POS_FILTER_KEY) || "null");
+    } catch (_) {
+      saved = null;
+    }
+    if (!saved || typeof saved !== "object") return;
+    const selected = new Set(
+      Array.isArray(saved.positions) ? saved.positions.map(String) : []
+    );
+    root.querySelectorAll("[data-pos]").forEach((btn) => {
+      const on = selected.has(btn.dataset.pos);
+      btn.classList.toggle("is-on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const multi = $("#posFilterMulti");
+    if (multi) {
+      const on = !!saved.multi;
+      multi.classList.toggle("is-on", on);
+      multi.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  function setPosFilterPressed(btn, on) {
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  function normalizeSearch(s) {
+    return String(s ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s'-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function getPlayerSearchQuery() {
+    return normalizeSearch($("#dbPlayerSearch")?.value || "");
+  }
+
+  function playerMatchesQuery(p, q) {
+    if (!q) return true;
+    const hay = normalizeSearch(
+      [p.full_name, p.first_name, p.last_name, p.nba_team, p.positions, p.yahoo_rank]
+        .filter((x) => x != null && x !== "")
+        .join(" ")
+    );
+    const tokens = q.split(" ").filter(Boolean);
+    return tokens.every((t) => hay.includes(t));
+  }
+
+  function filteredDbPlayers() {
+    const q = getPlayerSearchQuery();
+    return allDbPlayers.filter(
+      (p) => playerMatchesQuery(p, q) && playerMatchesPositions(p)
+    );
+  }
+
   function visibleDbPlayers() {
+    const filtered = filteredDbPlayers();
+    const q = getPlayerSearchQuery();
+    // While searching / filtering, show all matches (still cap at 500 for safety).
+    if (q || hasActivePosFilter()) return filtered.slice(0, 500);
     const limit = getShowLimit();
-    if (limit == null) return allDbPlayers;
-    return allDbPlayers.slice(0, limit);
+    if (limit == null) return filtered;
+    return filtered.slice(0, limit);
   }
 
   function renderDbPlayers() {
     const players = visibleDbPlayers();
     const total = allDbPlayers.length;
+    const filtered = filteredDbPlayers();
+    const q = getPlayerSearchQuery();
+    const posOn = hasActivePosFilter();
     const body = $("#dbBody");
     const sub = $("#dbSub");
     if (!total) {
       sub.textContent = "0 players saved locally";
+    } else if (q || posOn) {
+      const bits = [];
+      if (q) bits.push(`“${$("#dbPlayerSearch")?.value.trim() || q}”`);
+      const selected = getSelectedPositions();
+      if (selected.length) bits.push(selected.join("/"));
+      if (multiPosOnly()) bits.push("multi-pos");
+      sub.textContent = `${filtered.length} match${filtered.length === 1 ? "" : "es"} · ${bits.join(" · ")} · ${total} in DB`;
     } else if (players.length < total) {
       sub.textContent = `Showing ${players.length} of ${total} players`;
     } else {
@@ -121,6 +245,12 @@
         master.checked = false;
         master.indeterminate = false;
       }
+      updateSelectionUi();
+      return;
+    }
+
+    if (!players.length) {
+      body.innerHTML = `<tr><td colspan="${DB_COLS}" class="muted">No players match these filters.</td></tr>`;
       updateSelectionUi();
       return;
     }
@@ -207,7 +337,9 @@
       if (row) row.is_favourite = next ? 1 : 0;
       setFavButton(btn, next);
       document.querySelectorAll(`[data-fav="${playerId}"]`).forEach((el) => setFavButton(el, next));
-      if (currentDetailId === playerId) setFavButton($("#btnFavPlayer"), next);
+      if (window.PlayerDetail?.getCurrentId?.() === playerId) {
+        window.PlayerDetail.setFavouriteButton(next);
+      }
     } catch (err) {
       showAlert(String(err));
     } finally {
@@ -215,18 +347,16 @@
     }
   }
 
-  let currentDetailId = null;
-  let currentGameLogs = [];
-  let currentPlayerName = "";
+  function currentDetailId() {
+    return window.PlayerDetail?.getCurrentId?.() ?? null;
+  }
 
   function closeDetail() {
-    currentDetailId = null;
-    currentGameLogs = [];
-    currentPlayerName = "";
-    $("#detailModal").hidden = true;
-    const gl = $("#gameLogModal");
-    if (gl) gl.hidden = true;
-    document.body.classList.remove("modal-open");
+    window.PlayerDetail?.close?.();
+  }
+
+  function openDetail(playerId) {
+    return window.PlayerDetail?.open?.(playerId);
   }
 
   function networkErrorMessage(err) {
@@ -277,6 +407,67 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  let activeJobId = null;
+  let hideControlsJobId = null;
+
+  function setJobControls({ pauseResume, showStop, stopping }) {
+    const toggleBtn = $("#btnPauseResume");
+    const stopBtn = $("#btnCancelJob");
+    if (toggleBtn) {
+      if (pauseResume === "pause" || pauseResume === "resume") {
+        toggleBtn.hidden = false;
+        toggleBtn.disabled = false;
+        toggleBtn.dataset.mode = pauseResume;
+        toggleBtn.textContent = pauseResume === "resume" ? "Resume" : "Pause";
+      } else {
+        toggleBtn.hidden = true;
+        toggleBtn.disabled = true;
+      }
+    }
+    if (stopBtn) {
+      stopBtn.hidden = !showStop && !stopping;
+      stopBtn.disabled = !!stopping || !showStop;
+      stopBtn.textContent = stopping ? "Stopping…" : "Stop";
+    }
+  }
+
+  async function togglePauseResume() {
+    const mode = $("#btnPauseResume")?.dataset?.mode || "pause";
+    if (mode === "resume") await resumeActiveJob();
+    else await pauseActiveJob();
+  }
+
+  async function postJobAction(action, msg) {
+    if (!activeJobId) return;
+    try {
+      const res = await fetch(`/api/jobs/${activeJobId}/${action}`, { method: "POST" });
+      const data = await readJson(res);
+      if (!data.ok) {
+        showAlert(data.error || `Could not ${action}.`);
+        return;
+      }
+      if (data.job) updateJobBar(data.job);
+      if (msg) showAlert(msg);
+    } catch (err) {
+      showAlert(networkErrorMessage(err));
+    }
+  }
+
+  async function cancelActiveJob() {
+    if (!activeJobId) return;
+    hideControlsJobId = activeJobId;
+    setJobControls({ pauseResume: null, showStop: false, stopping: false });
+    await postJobAction("cancel", "Job cancelled.");
+  }
+
+  async function pauseActiveJob() {
+    await postJobAction("pause", "Paused — click Resume to continue.");
+  }
+
+  async function resumeActiveJob() {
+    await postJobAction("resume", "Resuming…");
+  }
+
   function showJobBar(job) {
     const bar = $("#jobBar");
     if (!bar) return;
@@ -286,6 +477,8 @@
 
   function updateJobBar(job) {
     if (!job) return;
+    if (job.id) activeJobId = job.id;
+    if (job.id && job.id !== hideControlsJobId) hideControlsJobId = null;
     const label = $("#jobBarLabel");
     const meta = $("#jobBarMeta");
     const text = $("#jobBarText");
@@ -302,13 +495,38 @@
       const pct = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 8;
       fill.style.width = `${pct}%`;
     }
+    const terminal =
+      job.status === "done" ||
+      job.status === "cancelled" ||
+      job.status === "error" ||
+      !!job.cancel_requested ||
+      (!!job.id && job.id === hideControlsJobId);
+    const active =
+      !terminal &&
+      (job.status === "running" ||
+        job.status === "queued" ||
+        job.status === "paused");
+    const paused = !!job.paused || job.status === "paused";
+    $("#jobBar")?.classList.toggle("is-paused", paused);
+    if (active && paused) {
+      setJobControls({ pauseResume: "resume", showStop: true, stopping: false });
+    } else if (active) {
+      setJobControls({ pauseResume: "pause", showStop: true, stopping: false });
+    } else {
+      setJobControls({ pauseResume: null, showStop: false, stopping: false });
+    }
   }
 
   function hideJobBarSoon() {
     const bar = $("#jobBar");
     if (!bar) return;
+    setJobControls({ pauseResume: null, showStop: false, stopping: false });
+    bar.classList.remove("is-paused");
     setTimeout(() => {
-      if (!scrapeJobRunning) bar.hidden = true;
+      if (!scrapeJobRunning) {
+        bar.hidden = true;
+        activeJobId = null;
+      }
     }, 4000);
   }
 
@@ -323,6 +541,7 @@
   }
 
   async function watchJob(jobId, { summarize } = {}) {
+    activeJobId = jobId;
     setScrapeUiBusy(true);
     while (true) {
       await sleep(1500);
@@ -332,9 +551,21 @@
         break;
       }
       updateJobBar(poll.job);
-      if (poll.job.status === "running" || poll.job.status === "queued") continue;
+      if (
+        poll.job.status === "running" ||
+        poll.job.status === "queued" ||
+        poll.job.status === "paused"
+      ) {
+        continue;
+      }
       if (poll.job.status === "error") {
         showAlert(poll.job.error || "Job failed.");
+        break;
+      }
+      if (poll.job.status === "cancelled") {
+        showAlert("Job cancelled.");
+        await loadDbPlayers();
+        hideJobBarSoon();
         break;
       }
       const result = poll.job.result || {};
@@ -388,9 +619,18 @@
   async function resumeActiveJobIfAny() {
     try {
       const data = await readJson(await fetch("/api/jobs/active"));
-      if (data.job && (data.job.status === "running" || data.job.status === "queued")) {
+      if (
+        data.job &&
+        (data.job.status === "running" ||
+          data.job.status === "queued" ||
+          data.job.status === "paused")
+      ) {
         showJobBar(data.job);
-        showAlert(`${data.job.label} is still running — you can browse the page.`);
+        showAlert(
+          data.job.status === "paused"
+            ? `${data.job.label} is paused — Resume or Stop.`
+            : `${data.job.label} is still running — you can browse the page.`
+        );
         await watchJob(data.job.id);
       }
     } catch (_) {
@@ -405,25 +645,27 @@
       idleLabel: "Refresh",
       busyLabel: "…",
       summarize: (result) => {
-        if (currentDetailId === playerId) openDetail(playerId);
+        if (currentDetailId() === playerId) openDetail(playerId);
         return `Refreshed ${result.full_name || "player"}.`;
       },
     });
   }
 
   async function bulkAddPlayers(limit, btn) {
-    const idle = btn.querySelector(".btn-label")?.textContent || `Add ${limit} new`;
+    const all = limit === "all" || limit === "*" || limit == null;
+    const idle = btn.querySelector(".btn-label")?.textContent || "Add auto player";
     await runBackgroundJob({
       url: "/api/bulk-add-players",
-      body: { limit },
+      body: all ? { limit: "all", all: true } : { limit },
       btn,
       idleLabel: idle,
-      busyLabel: `Adding ${limit}…`,
+      busyLabel: all ? "Adding all…" : `Adding ${limit}…`,
       summarize: (result) => {
         const n = result.added_count ?? 0;
+        const pool = result.pool_size != null ? ` Yahoo list ${result.pool_size}.` : "";
         return n
-          ? `Added ${n} new player${n === 1 ? "" : "s"} with full details (skipped ${result.skipped_existing ?? 0} already in DB).`
-          : "No new players to add — all top candidates are already in the DB.";
+          ? `Added ${n} new player${n === 1 ? "" : "s"} with full details (skipped ${result.skipped_existing ?? 0} already in DB).${pool}`
+          : `No new players to add — candidates already in the DB.${pool}`;
       },
     });
   }
@@ -511,7 +753,7 @@
         showAlert(data.error || "Delete selected failed.");
         return;
       }
-      if (currentDetailId != null && ids.includes(currentDetailId)) closeDetail();
+      if (currentDetailId() != null && ids.includes(currentDetailId())) closeDetail();
       showAlert(`Deleted ${data.deleted_count ?? 0} player${(data.deleted_count ?? 0) === 1 ? "" : "s"}.`);
       await loadDbPlayers();
     } catch (err) {
@@ -534,7 +776,7 @@
         showAlert(data.error || "Could not delete player.");
         return;
       }
-      if (currentDetailId === playerId) closeDetail();
+      if (currentDetailId() === playerId) closeDetail();
       await loadDbPlayers();
     } catch (err) {
       showAlert(networkErrorMessage(err));
@@ -631,219 +873,6 @@
     });
   }
 
-  function renderSeasonTable(rows, { showGp }) {
-    if (!rows.length) return `<p class="muted">No data yet — use Refresh.</p>`;
-    const head = `
-      <thead><tr>
-        <th class="tal">Season</th>
-        ${showGp ? "<th>GP</th>" : ""}
-        <th>Rank</th>
-        <th>FG%</th>
-        <th>FT%</th>
-        <th>3PT</th>
-        <th>PTS</th>
-        <th>REB</th>
-        <th>AST</th>
-        <th>STL</th>
-        <th>BLK</th>
-        <th>TO</th>
-      </tr></thead>`;
-    const body = rows
-      .map(
-        (s) => `
-      <tr>
-        <td class="tal"><span class="stat-year">${esc(s.season)}</span></td>
-        ${showGp ? `<td>${cell(s.games_played)}</td>` : ""}
-        <td>${cell(s.season_rank)}</td>
-        <td>${cell(s.fg_pct)}</td>
-        <td>${cell(s.ft_pct)}</td>
-        <td>${cell(s.threes)}</td>
-        <td>${cell(s.pts)}</td>
-        <td>${cell(s.reb)}</td>
-        <td>${cell(s.ast)}</td>
-        <td>${cell(s.stl)}</td>
-        <td>${cell(s.blk)}</td>
-        <td>${cell(s.tov)}</td>
-      </tr>`
-      )
-      .join("");
-    return `<div class="table-wrap"><table class="stat-table">${head}<tbody>${body}</tbody></table></div>`;
-  }
-
-  function renderDepthTable(rows) {
-    if (!rows.length) return `<p class="muted">No depth chart yet.</p>`;
-    const body = rows
-      .map(
-        (d) => `
-      <tr>
-        <td><span class="depth-rank">#${esc(d.depth_rank)}</span></td>
-        <td>${esc(d.depth_player_name)}</td>
-        <td>${esc(d.position) || "—"}</td>
-        <td>${d.yahoo_rank != null ? esc(d.yahoo_rank) : "—"}</td>
-      </tr>`
-      )
-      .join("");
-    return `<div class="table-wrap"><table class="stat-table depth-table">
-      <thead><tr><th class="tal">#</th><th class="tal">Player</th><th>Pos</th><th>Rank</th></tr></thead>
-      <tbody>${body}</tbody>
-    </table></div>`;
-  }
-
-  function renderGameLogTable(rows, { previewLimit = null } = {}) {
-    if (!rows.length) return `<p class="muted">No game log yet.</p>`;
-    const shown = previewLimit != null ? rows.slice(0, previewLimit) : rows;
-    const head = `
-      <thead><tr>
-        <th class="tal">Date</th>
-        <th class="tal">Opp</th>
-        <th>MIN</th>
-        <th>FG</th>
-        <th>FT</th>
-        <th>3PT</th>
-        <th>PTS</th>
-        <th>REB</th>
-        <th>AST</th>
-        <th>STL</th>
-        <th>BLK</th>
-        <th>TO</th>
-      </tr></thead>`;
-    const body = shown
-      .map((g) => {
-        const matchup = `${g.is_home ? "vs" : "@"} ${esc(g.opponent || "—")}`;
-        return `
-        <tr>
-          <td class="tal"><span class="stat-date">${esc(g.game_date || "—")}</span></td>
-          <td class="tal"><span class="stat-opp">${matchup}</span></td>
-          <td>${cell(g.minutes)}</td>
-          <td>${cell(g.fgm_a || g.fg_pct)}</td>
-          <td>${cell(g.ftm_a || g.ft_pct)}</td>
-          <td>${cell(g.threes)}</td>
-          <td>${cell(g.pts)}</td>
-          <td>${cell(g.reb)}</td>
-          <td>${cell(g.ast)}</td>
-          <td>${cell(g.stl)}</td>
-          <td>${cell(g.blk)}</td>
-          <td>${cell(g.tov)}</td>
-        </tr>`;
-      })
-      .join("");
-    return `<table class="stat-table">${head}<tbody>${body}</tbody></table>`;
-  }
-
-  function renderNewsCards(items) {
-    if (!items.length) return `<p class="muted">No news yet.</p>`;
-    return items
-      .map((n) => {
-        const body = n.body || "";
-        const short = body.length > 320 ? `${body.slice(0, 320)}…` : body;
-        return `<article class="news-card">
-          <h4>${esc(n.title || "Update")}</h4>
-          <div class="subline">${esc(n.published_at || "—")}${n.source ? ` · ${esc(n.source)}` : ""}</div>
-          ${short ? `<p>${esc(short)}</p>` : ""}
-        </article>`;
-      })
-      .join("");
-  }
-
-  function openGameLogHistory(e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (!currentGameLogs.length) return;
-    const modal = $("#gameLogModal");
-    if (!modal) return;
-    $("#gameLogTitle").textContent = `${currentPlayerName || "Player"} · Game log`;
-    $("#gameLogMeta").textContent = `${currentGameLogs.length} game${currentGameLogs.length === 1 ? "" : "s"}`;
-    $("#gameLogFull").innerHTML = renderGameLogTable(currentGameLogs);
-    modal.hidden = false;
-    modal.removeAttribute("hidden");
-    document.body.classList.add("modal-open");
-  }
-
-  function closeGameLogHistory(e) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    const modal = $("#gameLogModal");
-    if (modal) {
-      modal.hidden = true;
-      modal.setAttribute("hidden", "");
-    }
-    if ($("#detailModal")?.hidden) document.body.classList.remove("modal-open");
-  }
-
-  async function openDetail(playerId) {
-    const modal = $("#detailModal");
-    currentDetailId = playerId;
-    modal.hidden = false;
-    document.body.classList.add("modal-open");
-    $("#detailName").textContent = "Loading…";
-    $("#detailMeta").textContent = "";
-    $("#detailSeasonTotal").innerHTML = "Loading…";
-    $("#detailSeasonAvg").innerHTML = "Loading…";
-    $("#detailDepth").innerHTML = "Loading…";
-    $("#detailGames").innerHTML = "Loading…";
-    $("#detailNews").innerHTML = "Loading…";
-    const btnFull = $("#btnOpenGameLog");
-    if (btnFull) btnFull.hidden = true;
-
-    try {
-      const res = await fetch(`/api/db/players/${playerId}`);
-      const data = await res.json();
-      if (!data.ok) {
-        showAlert(data.error || "Player not found.");
-        closeDetail();
-        return;
-      }
-      const p = data.player;
-      currentPlayerName = p.full_name || "";
-      $("#detailName").textContent = p.full_name;
-      $("#detailMeta").textContent = [
-        p.nba_team,
-        p.positions,
-        p.yahoo_rank != null ? `Rank ${p.yahoo_rank}` : null,
-        p.owned_pct ? `${p.owned_pct} owned` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      setFavButton($("#btnFavPlayer"), !!p.is_favourite);
-
-      const seasonAll = data.season || [];
-      const seasonTotals = seasonAll
-        .filter((s) => s.record_type === "season_total")
-        .sort((a, b) => String(b.season).localeCompare(String(a.season)));
-      const seasonAvgs = seasonAll
-        .filter((s) => s.record_type === "season_avg")
-        .sort((a, b) => String(b.season).localeCompare(String(a.season)));
-
-      $("#detailSeasonTotal").innerHTML = renderSeasonTable(seasonTotals, { showGp: true });
-      $("#detailSeasonAvg").innerHTML = renderSeasonTable(seasonAvgs, { showGp: false });
-      $("#detailDepth").innerHTML = renderDepthTable(data.depth || []);
-
-      currentGameLogs = data.game_logs || [];
-      const previewLimit = 5;
-      if (!currentGameLogs.length) {
-        $("#detailGames").innerHTML = `<p class="muted">No game log yet.</p>`;
-        if (btnFull) btnFull.hidden = true;
-      } else {
-        const tableHtml = renderGameLogTable(currentGameLogs, { previewLimit });
-        const more =
-          currentGameLogs.length > previewLimit
-            ? `<div class="stat-preview-foot">Last ${previewLimit} of ${currentGameLogs.length} — click for full history</div>`
-            : `<div class="stat-preview-foot">Click for full history (${currentGameLogs.length})</div>`;
-        $("#detailGames").innerHTML = `<div class="stat-preview" id="gameLogPreview" role="button" tabindex="0" title="Open full game log"><div class="table-wrap">${tableHtml}</div>${more}</div>`;
-        if (btnFull) btnFull.hidden = false;
-      }
-
-      $("#detailNews").innerHTML = renderNewsCards(data.news || []);
-    } catch (err) {
-      showAlert(String(err));
-      closeDetail();
-    }
-  }
-
   async function loadDbPlayers() {
     try {
       const res = await fetch("/api/db/players");
@@ -898,6 +927,28 @@
       renderDbPlayers();
     });
   }
+  const dbPlayerSearch = $("#dbPlayerSearch");
+  if (dbPlayerSearch) {
+    let searchTimer = null;
+    dbPlayerSearch.addEventListener("input", () => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(renderDbPlayers, 120);
+    });
+    dbPlayerSearch.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        dbPlayerSearch.value = "";
+        renderDbPlayers();
+      }
+    });
+  }
+  restorePosFilters();
+  $("#posFilters")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pos-filter");
+    if (!btn || !e.currentTarget.contains(btn)) return;
+    setPosFilterPressed(btn, !btn.classList.contains("is-on"));
+    persistPosFilters();
+    renderDbPlayers();
+  });
   $("#btnAddPlayerJump")?.addEventListener("click", () => {
     const section = $("#findAddSection");
     section?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -927,10 +978,24 @@
   });
   $("#btnAutoAddConfirm")?.addEventListener("click", async () => {
     const picked = document.querySelector('input[name="autoAddLimit"]:checked');
-    const limit = Number(picked?.value || 10);
+    const raw = (picked?.value || "10").trim().toLowerCase();
+    const limit = raw === "all" ? "all" : Number(raw);
+    if (limit === "all") {
+      const ok = window.confirm(
+        "Add ALL missing players from the Yahoo ranked list?\n\n" +
+          "That is typically ~800 names (minus those already in your DB).\n" +
+          "Each player gets full details — this can take a long time.\n" +
+          "Keep Chrome debug open."
+      );
+      if (!ok) return;
+    }
     closeAutoAddModal();
-    await bulkAddPlayers(Number.isFinite(limit) ? limit : 10, $("#btnAutoAdd"));
+    await bulkAddPlayers(
+      limit === "all" || Number.isFinite(limit) ? limit : 10,
+      $("#btnAutoAdd")
+    );
   });
+
   const btnRefreshAll = $("#btnRefreshAll");
   if (btnRefreshAll) {
     btnRefreshAll.addEventListener("click", () => refreshAllPlayers(btnRefreshAll));
@@ -956,40 +1021,32 @@
       updateSelectionUi();
     });
   }
-  $("#btnDeletePlayer").addEventListener("click", () => {
-    if (currentDetailId != null) deletePlayer(currentDetailId);
-  });
-  $("#btnFavPlayer")?.addEventListener("click", () => {
-    if (currentDetailId != null) toggleFavourite(currentDetailId, $("#btnFavPlayer"));
-  });
-
-  document.querySelectorAll("[data-close-modal]").forEach((el) => {
-    el.addEventListener("click", closeDetail);
-  });
-  document.querySelectorAll("[data-close-gamelog]").forEach((el) => {
-    el.addEventListener("click", closeGameLogHistory);
-  });
-
-  const btnOpenGameLog = $("#btnOpenGameLog");
-  if (btnOpenGameLog) {
-    btnOpenGameLog.addEventListener("click", openGameLogHistory);
-  }
-  $("#detailGames")?.addEventListener("click", (e) => {
-    if (e.target.closest("#gameLogPreview, .stat-preview")) openGameLogHistory(e);
-  });
-  $("#detailGames")?.addEventListener("keydown", (e) => {
-    if ((e.key === "Enter" || e.key === " ") && e.target.closest("#gameLogPreview")) {
-      openGameLogHistory(e);
-    }
+  window.PlayerDetail?.init({
+    onAlert: showAlert,
+    onDelete: (playerId) => deletePlayer(playerId),
+    onFavouriteChange: (playerId, isFav) => {
+      const row = allDbPlayers.find((p) => p.id === playerId);
+      if (row) row.is_favourite = isFav ? 1 : 0;
+      document.querySelectorAll(`[data-fav="${playerId}"]`).forEach((el) => setFavButton(el, isFav));
+    },
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if ($("#autoAddModal") && !$("#autoAddModal").hidden) closeAutoAddModal();
-    else if ($("#gameLogModal") && !$("#gameLogModal").hidden) closeGameLogHistory();
-    else if (!$("#detailModal").hidden) closeDetail();
   });
 
-  loadDbPlayers();
+  loadDbPlayers().then(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openId = Number(params.get("player") || "");
+    if (Number.isFinite(openId) && openId > 0) openDetail(openId);
+    const q = params.get("q");
+    if (q && dbPlayerSearch) {
+      dbPlayerSearch.value = q;
+      renderDbPlayers();
+    }
+  });
+  $("#btnPauseResume")?.addEventListener("click", togglePauseResume);
+  $("#btnCancelJob")?.addEventListener("click", cancelActiveJob);
   resumeActiveJobIfAny();
 })();

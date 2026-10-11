@@ -19,6 +19,7 @@ from db import (
     insert_stat_if_new,
     upsert_player,
 )
+from jobs import JobCancelled, interruptible_sleep, raise_if_cancelled, restore_page_load_timeout
 from scrapers.players import _parse_players_table, ranked_players, top_available
 from store import utc_now_iso
 
@@ -120,7 +121,7 @@ def _open_playernote(driver: WebDriver, yahoo_id: str) -> None:
     if not icons:
         raise RuntimeError(f"No playernote control for yahoo_id={yahoo_id}")
     driver.execute_script("arguments[0].click();", icons[0])
-    time.sleep(3.5)
+    interruptible_sleep(3.5)
 
 
 def _close_playernote(driver: WebDriver) -> None:
@@ -134,7 +135,7 @@ def _close_playernote(driver: WebDriver) -> None:
         if btns:
             try:
                 driver.execute_script("arguments[0].click();", btns[0])
-                time.sleep(1)
+                interruptible_sleep(1)
                 return
             except Exception:
                 pass
@@ -159,20 +160,19 @@ def _click_overlay_tab(driver: WebDriver, label: str) -> None:
             "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();",
             el,
         )
-        time.sleep(2.4)
+        interruptible_sleep(2.4)
         return
 
 
 def _parse_news_blocks(text: str) -> list[dict[str, str]]:
-    """Parse Latest News section from overlay text."""
+    """Parse Latest News section from overlay text (fallback)."""
     if "Latest News" not in text:
         return []
     section = text.split("Latest News", 1)[1]
-    # Stop at unrelated footers if any
     items: list[dict[str, str]] = []
-    # Split on patterns like "9/4, 2:14 PM | Rotowire.com" or "Monday 4:34 PM | Rotoworld"
+    # Dates vary: "9/4, 2:14 PM | …", "6:35 AM | …", "Monday 4:34 PM | …"
     chunks = re.split(
-        r"\n(?=(?:\d{1,2}/\d{1,2},|\w+day\s+\d{1,2}:\d{2}\s*[AP]M)\s*\|)",
+        r"\n(?=(?:(?:\d{1,2}/\d{1,2},?\s*)?(?:\w+day\s+)?\d{1,2}:\d{2}\s*[AP]M)\s*\|)",
         section.strip(),
         flags=re.I,
     )
@@ -204,6 +204,52 @@ def _parse_news_blocks(text: str) -> list[dict[str, str]]:
             }
         )
     return items
+
+
+def _parse_news_from_dom(driver: WebDriver) -> list[dict[str, str]]:
+    """Parse all Latest News cards from the playernote DOM (preferred).
+
+    Selenium element.text often truncates overflow; query the full <li> cards instead.
+    """
+    rows = driver.execute_script(
+        """
+        const notes = document.querySelector('.player-notes');
+        if (!notes) return [];
+        return [...notes.querySelectorAll('ul > li')].map((li) => {
+          const spans = [...li.querySelectorAll('header span')]
+            .map((s) => (s.textContent || '').trim())
+            .filter(Boolean);
+          const pipe = spans.findIndex((s) => s === '|');
+          let published = '';
+          let source = '';
+          if (pipe > 0) {
+            published = spans.slice(0, pipe).join(' ').trim();
+            source = spans.slice(pipe + 1).join(' ').trim();
+          } else if (spans.length) {
+            published = spans[0];
+            source = spans.slice(1).join(' ').replace(/^\\|\\s*/, '');
+          }
+          const title = (li.querySelector('h4')?.textContent || '').trim();
+          const bodyEl =
+            li.querySelector('[class*=\"Whs\"]') ||
+            li.querySelector('header + div') ||
+            li.querySelector('section > div');
+          const body = (bodyEl?.innerText || bodyEl?.textContent || '').trim();
+          return { published_at: published, source, title, body };
+        }).filter((x) => x.title || x.body);
+        """
+    )
+    out: list[dict[str, str]] = []
+    for r in rows or []:
+        out.append(
+            {
+                "published_at": str(r.get("published_at") or "").strip(),
+                "source": str(r.get("source") or "").strip(),
+                "title": str(r.get("title") or "").strip(),
+                "body": str(r.get("body") or "").strip(),
+            }
+        )
+    return out
 
 
 def _header_index(headers: list[str], *names: str) -> int | None:
@@ -513,14 +559,21 @@ def scrape_player_overlay(driver: WebDriver, yahoo_id: str) -> dict[str, Any]:
     _open_playernote(driver, yahoo_id)
     overlay = driver.find_element(By.CSS_SELECTOR, "#react-playernote-overlay")
 
-    # News is usually visible in .player-notes
-    news_text = ""
-    notes = driver.find_elements(By.CSS_SELECTOR, ".player-notes")
-    if notes:
-        news_text = notes[0].text
-    else:
-        news_text = overlay.text
-    news = _parse_news_blocks(news_text)
+    # News: prefer DOM cards (element.text truncates overflow and drops items).
+    news = _parse_news_from_dom(driver)
+    if not news:
+        notes = driver.find_elements(By.CSS_SELECTOR, ".player-notes")
+        news_text = notes[0].get_attribute("innerText") if notes else (overlay.text or "")
+        # innerText via attribute may be None on some drivers — fall back to JS
+        if not news_text:
+            news_text = (
+                driver.execute_script(
+                    "var n=document.querySelector('.player-notes');"
+                    "return n ? n.innerText : (document.querySelector('#react-playernote-overlay')||{}).innerText || '';"
+                )
+                or ""
+            )
+        news = _parse_news_blocks(news_text)
 
     # Game log tab
     _click_overlay_tab(driver, "Game Log")
@@ -686,22 +739,36 @@ def ingest_player_from_raw(
         detail: dict[str, Any] = {"news": [], "game_logs": [], "season_rows": []}
         # Prefer name search — works for rostered + FA players.
         try:
+            raise_if_cancelled()
+            restore_page_load_timeout(driver)
             if full_name:
                 driver.get(
                     f"{config.LEAGUE_URL}/playersearch?search={quote_plus(full_name)}"
                 )
             else:
                 driver.get(f"{config.LEAGUE_URL}/players?status=A&sort=AR")
-            time.sleep(config.PAGE_LOAD_WAIT_SEC)
+            interruptible_sleep(config.PAGE_LOAD_WAIT_SEC)
+            raise_if_cancelled()
             detail = scrape_player_overlay(driver, yahoo_id)
+        except JobCancelled:
+            raise
         except Exception as exc:
+            raise_if_cancelled()
+            restore_page_load_timeout(driver)
             print(f"overlay failed for {full_name or yahoo_id}: {exc}", flush=True)
             if full_name:
                 try:
+                    raise_if_cancelled()
+                    restore_page_load_timeout(driver)
                     driver.get(f"{config.LEAGUE_URL}/players?status=A&sort=AR")
-                    time.sleep(config.PAGE_LOAD_WAIT_SEC)
+                    interruptible_sleep(config.PAGE_LOAD_WAIT_SEC)
+                    raise_if_cancelled()
                     detail = scrape_player_overlay(driver, yahoo_id)
+                except JobCancelled:
+                    raise
                 except Exception as exc2:
+                    raise_if_cancelled()
+                    restore_page_load_timeout(driver)
                     print(f"overlay fallback failed for {full_name}: {exc2}", flush=True)
 
         for n in detail["news"]:
@@ -814,12 +881,14 @@ def ingest_player_from_raw(
         team = player.get("nba_team") or ""
         pos = primary_position(player.get("positions"))
         try:
+            raise_if_cancelled()
             if team_map is None:
                 team_map = _nba_team_to_eteam(driver)
             eteam = team_map.get(team)
             if eteam and pos:
                 depth_rows = scrape_team_depth(driver, eteam_value=eteam, position=pos)
                 for drow in depth_rows:
+                    raise_if_cancelled()
                     h = content_hash(
                         player_id,
                         team,
@@ -843,6 +912,8 @@ def ingest_player_from_raw(
                         },
                     )
                     stats["depth_inserted" if ok else "depth_skipped"] += 1
+        except JobCancelled:
+            raise
         except Exception as exc:
             print(f"depth scrape failed for {player.get('full_name')}: {exc}", flush=True)
 
@@ -1054,11 +1125,15 @@ def refresh_all_players_in_db(
 
 def add_missing_players(
     *,
-    limit: int = 10,
+    limit: int | None = 10,
+    all_players: bool = False,
     scrape_details: bool = True,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Add up to `limit` top-ranked players that are not already in the local DB.
+
+    If all_players=True (or limit is None), walk the full Yahoo ranked list
+    (~800+) and add every missing player.
 
     Always scrapes full details (news, game log, season, depth) unless
     scrape_details=False is passed explicitly.
@@ -1066,15 +1141,24 @@ def add_missing_players(
     from chrome_browser import attach_chrome
     from db import get_yahoo_ids
 
-    limit = max(1, min(int(limit), 200))
+    # Yahoo fantasy lists ~800–900 players; 1000 is a safe ceiling for "all".
+    YAHOO_LIST_CEILING = 1000
+
+    if all_players or limit is None:
+        all_players = True
+        limit = YAHOO_LIST_CEILING
+    else:
+        limit = max(1, min(int(limit), YAHOO_LIST_CEILING))
+
     scrape_details = bool(scrape_details)
+    label = "all missing" if all_players else str(limit)
     print(
-        f"Attaching to Chrome for {limit} new players "
+        f"Attaching to Chrome for {label} new players "
         f"(details={'on' if scrape_details else 'off'})…",
         flush=True,
     )
     if progress_cb:
-        progress_cb(0, limit, "Attaching Chrome…")
+        progress_cb(0, 1, "Attaching Chrome…")
     driver = attach_chrome()
     try:
         driver.set_page_load_timeout(90)
@@ -1087,11 +1171,14 @@ def add_missing_players(
     added: list[dict[str, Any]] = []
     skipped_existing = 0
 
-    # Over-fetch so we can skip ones already in DB.
-    fetch_n = min(500, max(limit + len(known) + 50, limit + 50))
+    # Over-fetch so we can skip ones already in DB. For "all", pull the full list.
+    if all_players:
+        fetch_n = YAHOO_LIST_CEILING
+    else:
+        fetch_n = min(YAHOO_LIST_CEILING, max(limit + len(known) + 50, limit + 50))
     print(f"Loading NBA team map + top {fetch_n} ranked players…", flush=True)
     if progress_cb:
-        progress_cb(0, limit, f"Loading Yahoo ranked list ({fetch_n})…")
+        progress_cb(0, 1, f"Loading Yahoo ranked list ({fetch_n})…")
     team_map = _nba_team_to_eteam(driver) if scrape_details else {}
     pool = ranked_players(driver, limit=fetch_n, status="ALL", sort="AR")
 
@@ -1104,11 +1191,12 @@ def add_missing_players(
             skipped_existing += 1
             continue
         targets.append(raw)
-        if len(targets) >= limit:
+        if not all_players and len(targets) >= limit:
             break
 
     print(
-        f"Will add {len(targets)} new (skipped {skipped_existing} already in DB)",
+        f"Yahoo pool {len(pool)} · will add {len(targets)} new "
+        f"(skipped {skipped_existing} already in DB)",
         flush=True,
     )
     if progress_cb:
@@ -1150,8 +1238,10 @@ def add_missing_players(
 
     return {
         "ok": True,
-        "limit": limit,
-        "requested": limit,
+        "limit": None if all_players else limit,
+        "all_players": all_players,
+        "requested": None if all_players else limit,
+        "pool_size": len(pool),
         "added_count": len(added),
         "skipped_existing": skipped_existing,
         "scrape_details": scrape_details,

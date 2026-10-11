@@ -1,5 +1,12 @@
 <nav class="site-nav">
   <a href="{{ url_for('index') }}" class="nav-link {% if active == 'home' %}active{% endif %}">Dashboard</a>
-  <a href="{{ url_for('search_page') }}" class="nav-link {% if active == 'search' %}active{% endif %}">Players</a>
+  <a href="{{ url_for('roster_page') }}" class="nav-link {% if active == 'roster' %}active{% endif %}">Roster</a>
+  <a href="{{ url_for('standings_page') }}" class="nav-link {% if active == 'standings' %}active{% endif %}">Standings</a>
+  <a href="{{ url_for('players_page') }}" class="nav-link {% if active == 'players' %}active{% endif %}">Players</a>
   <a href="{{ url_for('watchlist_page') }}" class="nav-link {% if active == 'watchlist' %}active{% endif %}">Watchlist</a>
+  <a href="{{ url_for('teams_page') }}" class="nav-link {% if active == 'teams' %}active{% endif %}">Teams</a>
+  <a href="{{ url_for('news_page') }}" class="nav-link {% if active == 'news' %}active{% endif %}">News</a>
+  <a href="{{ url_for('injuries_page') }}" class="nav-link {% if active == 'injuries' %}active{% endif %}">Injuries</a>
+  <a href="{{ url_for('trends_page') }}" class="nav-link {% if active == 'trends' %}active{% endif %}">Trends</a>
+  <a href="{{ url_for('free_players_page') }}" class="nav-link {% if active == 'free_players' %}active{% endif %}">Free Players</a>
 </nav>

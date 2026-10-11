@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request
 
 import config
 from chrome_browser import ChromeNotOpenError, attach_chrome
@@ -12,14 +12,27 @@ from db import (
     clear_watchlist,
     delete_player,
     delete_players,
+    fantasy_news_counts,
     get_player_by_yahoo_id,
     get_player_detail,
     get_yahoo_ids,
+    list_fantasy_news,
+    list_injuries_by_team,
     list_players,
+    list_players_by_team,
+    list_roster_trends,
     list_watchlist_by_position,
     remove_favourite,
+    sync_fantasy_news_links,
 )
-from jobs import active_job, get_job, scrape_busy, start_job
+from app_settings import load_app_settings, save_app_settings
+from jobs import active_job, cancel_job, get_job, pause_job, resume_job, scrape_busy, start_job
+from scrapers.fantasy_news import SOURCE_CBS, SOURCE_NBA, sync_fantasy_news
+from scrapers.injuries import sync_injuries
+from scrapers.main_refresh import run_main_refresh
+from scrapers.trends import sync_trends
+from scrapers.free_players import load_free_players, sync_free_players
+from scrapers.standings_detail import load_standings_detail, sync_standings_detail
 from scrapers.player_db import (
     add_missing_players,
     add_player_to_db,
@@ -89,19 +102,107 @@ def api_jobs_get(job_id: str):
     return jsonify({"ok": True, "job": job})
 
 
+@app.post("/api/jobs/<job_id>/cancel")
+def api_jobs_cancel(job_id: str):
+    result = cancel_job(job_id)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.post("/api/jobs/cancel")
+def api_jobs_cancel_active():
+    result = cancel_job(None)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.post("/api/jobs/<job_id>/pause")
+def api_jobs_pause(job_id: str):
+    result = pause_job(job_id)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.post("/api/jobs/<job_id>/resume")
+def api_jobs_resume(job_id: str):
+    result = resume_job(job_id)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.post("/api/jobs/pause")
+def api_jobs_pause_active():
+    result = pause_job(None)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
+@app.post("/api/jobs/resume")
+def api_jobs_resume_active():
+    result = resume_job(None)
+    status = 200 if result.get("ok") else 400
+    return jsonify(result), status
+
+
 @app.get("/")
 def index():
     return render_template("index.html", league_id=config.LEAGUE_ID, active="home")
 
 
+@app.get("/roster")
+def roster_page():
+    return render_template("roster.html", league_id=config.LEAGUE_ID, active="roster")
+
+
+@app.get("/players")
+def players_page():
+    return render_template("search.html", league_id=config.LEAGUE_ID, active="players")
+
+
 @app.get("/search")
-def search_page():
-    return render_template("search.html", league_id=config.LEAGUE_ID, active="search")
+def search_page_redirect():
+    """Old /search URL → /players."""
+    qs = request.query_string.decode("utf-8") if request.query_string else ""
+    return redirect(f"/players?{qs}" if qs else "/players", code=301)
 
 
 @app.get("/watchlist")
 def watchlist_page():
     return render_template("watchlist.html", league_id=config.LEAGUE_ID, active="watchlist")
+
+
+@app.get("/news")
+def news_page():
+    return render_template("news.html", league_id=config.LEAGUE_ID, active="news")
+
+
+@app.get("/teams")
+def teams_page():
+    return render_template("teams.html", league_id=config.LEAGUE_ID, active="teams")
+
+
+@app.get("/injuries")
+def injuries_page():
+    return render_template("injuries.html", league_id=config.LEAGUE_ID, active="injuries")
+
+
+@app.get("/trends")
+def trends_page():
+    return render_template("trends.html", league_id=config.LEAGUE_ID, active="trends")
+
+
+@app.get("/standings")
+def standings_page():
+    return render_template(
+        "standings.html", league_id=config.LEAGUE_ID, active="standings"
+    )
+
+
+@app.get("/free-players")
+def free_players_page():
+    return render_template(
+        "free_players.html", league_id=config.LEAGUE_ID, active="free_players"
+    )
 
 
 @app.get("/settings")
@@ -116,8 +217,54 @@ def api_dashboard():
     return jsonify({"ok": True, "has_data": has_data, **data})
 
 
+@app.get("/api/roster")
+def api_roster():
+    from roster_view import load_my_roster_page
+
+    return jsonify(load_my_roster_page())
+
+
+@app.get("/api/app-settings")
+def api_app_settings_get():
+    return jsonify({"ok": True, "settings": load_app_settings()})
+
+
+@app.put("/api/app-settings")
+@app.post("/api/app-settings")
+def api_app_settings_save():
+    payload = request.get_json(silent=True) or {}
+    try:
+        settings = save_app_settings(payload)
+        dashboard = None
+        if "my_team_id" in (payload or {}):
+            from scrapers.sync import apply_my_team_selection
+
+            dashboard = apply_my_team_selection(persist=True)
+        return jsonify({"ok": True, "settings": settings, "dashboard": dashboard})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @app.post("/api/sync")
+@app.post("/api/refresh")
 def api_sync():
+    """Main morning refresh: league + roster + available + news/injuries/trends."""
+
+    def run(progress):
+        return run_main_refresh(progress_cb=progress)
+
+    return jsonify(
+        start_job(
+            kind="main_refresh",
+            label="Main refresh",
+            fn=run,
+        )
+    )
+
+
+@app.post("/api/sync/league")
+def api_sync_league_only():
+    """Legacy league-only sync (settings/standings/matchups)."""
     try:
         result = sync_all()
         return jsonify(result)
@@ -158,6 +305,195 @@ def api_db_watchlist_clear():
         return jsonify({"ok": True, **result})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/db/teams")
+def api_db_teams():
+    try:
+        data = list_players_by_team()
+        return jsonify({"ok": True, **data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/db/news")
+def api_db_news():
+    try:
+        limit = int(request.args.get("limit") or 100)
+    except (TypeError, ValueError):
+        limit = 100
+    matched_only = str(request.args.get("matched") or "").lower() in {"1", "true", "yes"}
+    unmatched_only = str(request.args.get("unmatched") or "").lower() in {"1", "true", "yes"}
+    match = (request.args.get("match") or "").strip().lower() or None
+    sources_raw = request.args.get("sources") or request.args.get("source") or ""
+    sources = [s.strip() for s in sources_raw.split(",") if s.strip()] or None
+    try:
+        items = list_fantasy_news(
+            limit=limit,
+            matched_only=matched_only,
+            unmatched_only=unmatched_only,
+            match=match,
+            sources=sources,
+        )
+        counts = fantasy_news_counts()
+        known_sources = counts.get("sources") or []
+        for src in (SOURCE_NBA, SOURCE_CBS):
+            if src not in known_sources:
+                known_sources.append(src)
+        return jsonify(
+            {
+                "ok": True,
+                "news": items,
+                "count": len(items),
+                "available_sources": known_sources,
+                **counts,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/db/news/refresh")
+def api_db_news_refresh():
+    body = request.get_json(silent=True) or {}
+    include_nba = body.get("nba", True)
+    include_cbs = body.get("cbs", True)
+    if isinstance(include_nba, str):
+        include_nba = include_nba.lower() in {"1", "true", "yes"}
+    if isinstance(include_cbs, str):
+        include_cbs = include_cbs.lower() in {"1", "true", "yes"}
+
+    def run(progress):
+        return sync_fantasy_news(
+            progress_cb=progress,
+            include_nba=bool(include_nba),
+            include_cbs=bool(include_cbs),
+        )
+
+    return jsonify(
+        start_job(
+            kind="fantasy_news",
+            label="Refresh Fantasy News",
+            fn=run,
+        )
+    )
+
+
+@app.post("/api/db/news/sync")
+@app.post("/api/db/news/relink")
+def api_db_news_sync():
+    """Re-match unmatched news rows to players currently in the DB."""
+    try:
+        result = sync_fantasy_news_links()
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/db/injuries")
+def api_db_injuries():
+    try:
+        data = list_injuries_by_team()
+        return jsonify({"ok": True, **data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/db/injuries/refresh")
+def api_db_injuries_refresh():
+    def run(progress):
+        return sync_injuries(progress_cb=progress)
+
+    return jsonify(
+        start_job(
+            kind="injuries",
+            label="Refresh Injuries",
+            fn=run,
+        )
+    )
+
+
+@app.get("/api/db/trends")
+def api_db_trends():
+    try:
+        data = list_roster_trends()
+        return jsonify({"ok": True, **data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/db/trends/refresh")
+def api_db_trends_refresh():
+    def run(progress):
+        return sync_trends(progress_cb=progress)
+
+    return jsonify(
+        start_job(
+            kind="roster_trends",
+            label="Refresh Trends",
+            fn=run,
+        )
+    )
+
+
+@app.get("/api/standings-detail")
+def api_standings_detail():
+    try:
+        data = load_standings_detail()
+        return jsonify({"ok": True, **data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/standings-detail/refresh")
+def api_standings_detail_refresh():
+    def run(progress):
+        return sync_standings_detail(progress_cb=progress)
+
+    return jsonify(
+        start_job(
+            kind="standings_detail",
+            label="Refresh Standings",
+            fn=run,
+        )
+    )
+
+
+@app.get("/api/free-players")
+def api_free_players():
+    try:
+        data = load_free_players()
+        # Page table shows top picks; keep payload light.
+        return jsonify(
+            {
+                "ok": True,
+                "scraped_at": data.get("scraped_at"),
+                "pool": data.get("pool"),
+                "top": data.get("top"),
+                "stat1": data.get("stat1"),
+                "weights": data.get("weights"),
+                "note": data.get("note"),
+                "players": data.get("players") or [],
+                "count": data.get("count") or 0,
+                "pool_count": data.get("pool_count") or 0,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/free-players/refresh")
+def api_free_players_refresh():
+    def run(progress):
+        return sync_free_players(progress_cb=progress)
+
+    return jsonify(
+        start_job(
+            kind="free_players",
+            label="Free Players analysis",
+            fn=run,
+        )
+    )
 
 
 @app.post("/api/db/players/<int:player_id>/favourite")
@@ -228,27 +564,47 @@ def _parse_player_ids(payload: dict) -> list[int]:
 
 def _bulk_add_from_request():
     payload = request.get_json(silent=True) or {}
-    try:
-        limit = int(payload.get("limit") or request.args.get("limit") or 10)
-    except (TypeError, ValueError):
-        limit = 10
-    if limit not in {10, 50, 200}:
-        if limit >= 100:
-            limit = 200
-        elif limit >= 30:
-            limit = 50
-        else:
+    raw_limit = payload.get("limit", request.args.get("limit", 10))
+    all_players = False
+    if isinstance(raw_limit, str) and raw_limit.strip().lower() in {"all", "*"}:
+        all_players = True
+        limit = None
+    elif payload.get("all") in {True, 1, "1", "true", "yes"}:
+        all_players = True
+        limit = None
+    else:
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
             limit = 10
+        if limit not in {10, 50, 200}:
+            if limit >= 500:
+                all_players = True
+                limit = None
+            elif limit >= 100:
+                limit = 200
+            elif limit >= 30:
+                limit = 50
+            else:
+                limit = 10
 
     def run(progress):
         return add_missing_players(
-            limit=limit, scrape_details=True, progress_cb=progress
+            limit=limit,
+            all_players=all_players,
+            scrape_details=True,
+            progress_cb=progress,
         )
 
+    label = (
+        "Add all missing Yahoo players (full details)"
+        if all_players
+        else f"Add {limit} new players (full details)"
+    )
     return jsonify(
         start_job(
             kind="bulk_add",
-            label=f"Add {limit} new players (full details)",
+            label=label,
             fn=run,
         )
     )

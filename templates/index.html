@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -20,7 +20,7 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" id="btnSync" class="btn primary">
+        <button type="button" id="btnSync" class="btn primary" title="League + roster + available players + news, injuries, trends">
           <span class="btn-label">Refresh from Yahoo</span>
           <span class="btn-spinner" hidden></span>
         </button>
@@ -30,6 +30,23 @@
     </header>
 
     <div id="alert" class="alert" hidden></div>
+    <div id="jobBar" class="job-bar" hidden>
+      <div class="job-bar-head">
+        <strong id="jobBarLabel">Main refresh</strong>
+        <div class="job-bar-head-meta">
+          <button type="button" id="btnPauseResume" class="btn ghost tiny job-pause-resume" hidden data-mode="pause">Pause</button>
+          <button type="button" id="btnCancelJob" class="btn ghost tiny job-cancel" hidden>Stop</button>
+          <span id="jobBarTimer" class="job-bar-timer" aria-live="polite">0:00</span>
+          <span id="jobBarMeta" class="job-bar-meta">—</span>
+        </div>
+      </div>
+      <p id="jobBarText" class="job-bar-text">Starting…</p>
+      <div class="job-bar-track" aria-hidden="true">
+        <div class="job-bar-fill" id="jobBarFill"></div>
+      </div>
+      <ol id="jobSteps" class="job-steps" hidden></ol>
+      <p class="job-bar-hint">Keep Chrome debug open. Pause / Resume / Stop control the whole run.</p>
+    </div>
 
     <main class="layout">
       <section class="panel team-panel">
@@ -48,6 +65,25 @@
       </section>
 
       <aside class="right-col">
+        <section class="panel matchup-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Matchup</h2>
+              <p class="panel-sub" id="matchupSub">—</p>
+            </div>
+          </div>
+          <div class="matchup-nav" id="matchupNav" hidden>
+            <button type="button" class="btn ghost tiny" id="btnMatchupPrev" aria-label="Previous matchup">←</button>
+            <span class="matchup-nav-label" id="matchupNavLabel">Week —</span>
+            <button type="button" class="btn ghost tiny" id="btnMatchupNext" aria-label="Next matchup">→</button>
+            <button type="button" class="btn ghost tiny" id="btnMatchupAll">All</button>
+          </div>
+          <div class="my-matchup" id="myMatchup"></div>
+          <div class="cat-grid" id="catGrid"></div>
+          <h3 class="section-label">League matchups</h3>
+          <div class="matchup-list" id="matchupList"></div>
+        </section>
+
         <section class="panel standings-panel">
           <div class="panel-head">
             <div>
@@ -69,19 +105,6 @@
             </table>
           </div>
         </section>
-
-        <section class="panel matchup-panel">
-          <div class="panel-head">
-            <div>
-              <h2>Matchup</h2>
-              <p class="panel-sub" id="matchupSub">—</p>
-            </div>
-          </div>
-          <div class="my-matchup" id="myMatchup"></div>
-          <div class="cat-grid" id="catGrid"></div>
-          <h3 class="section-label">All matchups</h3>
-          <div class="matchup-list" id="matchupList"></div>
-        </section>
       </aside>
 
       <section class="panel rules-panel">
@@ -96,6 +119,26 @@
       </section>
     </main>
   </div>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+  <div class="modal" id="scheduleModal" hidden>
+    <div class="modal-backdrop" data-close-schedule></div>
+    <div class="modal-dialog panel schedule-dialog" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle">
+      <div class="panel-head">
+        <div>
+          <h2 id="scheduleTitle">My schedule</h2>
+          <p class="panel-sub" id="scheduleSub">All weeks</p>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn ghost" data-close-schedule>Close</button>
+        </div>
+      </div>
+      <div class="schedule-list" id="scheduleList"></div>
+    </div>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=33"></script>
 </body>
 </html>
