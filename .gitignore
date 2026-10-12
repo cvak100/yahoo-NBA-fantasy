@@ -1,11 +1,23 @@
+# Local secrets / machine-specific
+config_local.py
+.env
 .chrome_profile/
+
+# Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
-.env
 *.log
+
+# Runtime / personal scrape output (never commit live league data)
 data/*
 !data/.gitkeep
+
+# Accidental DBs / probes
+yahoonba.db
+*.db-journal
+_tmp_*.py
 _probe*.py
 _debug*
+scripts/probe_*.py

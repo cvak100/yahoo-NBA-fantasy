@@ -1,0 +1,13 @@
+{
+  "refresh_available_count": 100,
+  "my_team_id": "",
+  "refresh_steps": {
+    "league": true,
+    "roster": true,
+    "news": true,
+    "injuries": true,
+    "trends": true,
+    "available": true
+  },
+  "include_my_roster": true
+}

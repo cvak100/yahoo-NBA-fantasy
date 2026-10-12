@@ -38,7 +38,7 @@ def _parse_yahoo_team_keys(html: str) -> list[dict[str, str]]:
     teams: list[dict[str, str]] = []
     for key, name in data.items():
         key_s = str(key)
-        # Observed: 9249605 => team 2; 1049605 => team 10 (league 49605)
+        # Yahoo team keys append league id (e.g. 9{team}{leagueId}).
         if key_s.endswith(config.LEAGUE_ID) and len(key_s) > len(config.LEAGUE_ID):
             prefix = key_s[: -len(config.LEAGUE_ID)]
             if len(prefix) == 2 and prefix.startswith("9"):

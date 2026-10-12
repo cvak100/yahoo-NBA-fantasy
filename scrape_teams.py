@@ -91,7 +91,7 @@ def scrape_teams(driver: WebDriver, *, timeout: float = 20) -> list[Team]:
             if not m:
                 continue
             team_id = m.group(1)
-            # Preskoči podstrani (npr. /49605/1/team, trades, itd. — team_id je številka)
+            # Skip subpages (/nba/{league}/{team}/team, trades, … — team_id is numeric)
             name = (link.text or "").strip()
             if not name or team_id in teams_by_id:
                 continue

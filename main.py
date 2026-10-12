@@ -81,6 +81,15 @@ def cmd_serve() -> int:
     # Only clear the port on the outer process — not on Werkzeug reloader child.
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         _kill_port(port)
+        lid = str(config.LEAGUE_ID or "").strip()
+        if not lid or lid.upper() == "YOUR_LEAGUE_ID":
+            print(
+                "WARNING: Set your Yahoo league id in config_local.py "
+                "(copy config_local.example.py) or YAHOO_LEAGUE_ID.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"League id: {lid}")
     print(f"Dashboard: http://{host}:{port}")
     print(f"Players:   http://{host}:{port}/players")
     print(f"Watchlist: http://{host}:{port}/watchlist")

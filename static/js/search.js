@@ -5,7 +5,7 @@
   const LEAGUE_ID =
     document.body?.dataset?.leagueId ||
     document.querySelector("[data-league-id]")?.dataset?.leagueId ||
-    "49605";
+    "";
 
   function yahooPlayerSearchUrl(name) {
     const q = encodeURIComponent(String(name || "").trim());

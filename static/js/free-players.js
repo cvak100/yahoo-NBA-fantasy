@@ -2,7 +2,7 @@
   const $ = (sel) => document.querySelector(sel);
   const alertEl = $("#alert");
   const COLS = 14;
-  const LEAGUE_ID = document.body?.dataset?.leagueId || "49605";
+  const LEAGUE_ID = document.body?.dataset?.leagueId || "";
 
   let freeData = null;
   /** @type {{ key: string, dir: 'asc' | 'desc' }} */

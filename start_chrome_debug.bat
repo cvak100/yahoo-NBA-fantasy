@@ -16,4 +16,5 @@ echo When Chrome is open and you are signed in to Yahoo, run:
 echo   .venv\Scripts\python main.py
 echo.
 
-start "" "%CHROME%" --remote-debugging-port=9222 --user-data-dir="%PROFILE%" --no-first-run --no-default-browser-check "https://basketball.fantasysports.yahoo.com/nba/49605"
+REM Opens Yahoo Fantasy home — sign in, then open your league.
+start "" "%CHROME%" --remote-debugging-port=9222 --user-data-dir="%PROFILE%" --no-first-run --no-default-browser-check "https://basketball.fantasysports.yahoo.com/"

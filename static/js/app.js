@@ -761,7 +761,7 @@
     const matchups = data.matchups || {};
 
     $("#leagueName").textContent =
-      meta.league_name || rules.league_name || "Snopcministri";
+      meta.league_name || rules.league_name || "Yahoo Fantasy NBA";
 
     const bits = [];
     if (meta.draft_time) bits.push(`Draft: ${meta.draft_time}`);
