@@ -1,12 +1,70 @@
-<nav class="site-nav">
-  <a href="{{ url_for('index') }}" class="nav-link {% if active == 'home' %}active{% endif %}">Dashboard</a>
+<nav class="site-nav" aria-label="Main">
+  <a
+    href="{{ url_for('index') }}"
+    class="nav-link nav-home {% if active == 'home' %}active{% endif %}"
+    title="Home"
+    aria-label="Home"
+  >
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 10.5 12 3l9 7.5"></path>
+      <path d="M5 9.5V21h14V9.5"></path>
+      <path d="M10 21v-6h4v6"></path>
+    </svg>
+  </a>
   <a href="{{ url_for('roster_page') }}" class="nav-link {% if active == 'roster' %}active{% endif %}">Roster</a>
   <a href="{{ url_for('standings_page') }}" class="nav-link {% if active == 'standings' %}active{% endif %}">Standings</a>
-  <a href="{{ url_for('players_page') }}" class="nav-link {% if active == 'players' %}active{% endif %}">Players</a>
-  <a href="{{ url_for('watchlist_page') }}" class="nav-link {% if active == 'watchlist' %}active{% endif %}">Watchlist</a>
+
+  {% set players_active = active in ['players', 'watchlist', 'trends', 'free_players'] %}
+  {% set players_label = {
+    'watchlist': 'Watchlist',
+    'trends': 'Trends',
+    'free_players': 'Free Players'
+  }.get(active, 'Players') %}
+  {% set players_href = {
+    'watchlist': url_for('watchlist_page'),
+    'trends': url_for('trends_page'),
+    'free_players': url_for('free_players_page')
+  }.get(active, url_for('players_page')) %}
+  <div class="nav-item has-sub {% if players_active %}active{% endif %}">
+    <a
+      href="{{ players_href }}"
+      class="nav-link nav-parent {% if players_active %}active{% endif %}"
+      aria-haspopup="true"
+      aria-expanded="false"
+    >
+      {{ players_label }}
+      <span class="nav-caret" aria-hidden="true">▾</span>
+    </a>
+    <div class="nav-sub" role="menu">
+      <a href="{{ url_for('players_page') }}" class="nav-sub-link {% if active == 'players' %}active{% endif %}" role="menuitem">Players</a>
+      <a href="{{ url_for('watchlist_page') }}" class="nav-sub-link {% if active == 'watchlist' %}active{% endif %}" role="menuitem">Watchlist</a>
+      <a href="{{ url_for('trends_page') }}" class="nav-sub-link {% if active == 'trends' %}active{% endif %}" role="menuitem">Trends</a>
+      <a href="{{ url_for('free_players_page') }}" class="nav-sub-link {% if active == 'free_players' %}active{% endif %}" role="menuitem">Free Players</a>
+    </div>
+  </div>
+
   <a href="{{ url_for('teams_page') }}" class="nav-link {% if active == 'teams' %}active{% endif %}">Teams</a>
   <a href="{{ url_for('news_page') }}" class="nav-link {% if active == 'news' %}active{% endif %}">News</a>
   <a href="{{ url_for('injuries_page') }}" class="nav-link {% if active == 'injuries' %}active{% endif %}">Injuries</a>
-  <a href="{{ url_for('trends_page') }}" class="nav-link {% if active == 'trends' %}active{% endif %}">Trends</a>
-  <a href="{{ url_for('free_players_page') }}" class="nav-link {% if active == 'free_players' %}active{% endif %}">Free Players</a>
+  <a href="{{ url_for('analytics_page') }}" class="nav-link {% if active == 'analytics' %}active{% endif %}">Analytics</a>
+  <a href="{{ url_for('scouting_page') }}" class="nav-link {% if active == 'scouting' %}active{% endif %}">Scouting</a>
 </nav>
+<script>
+(() => {
+  const item = document.querySelector(".site-nav .nav-item.has-sub");
+  if (!item) return;
+  const parent = item.querySelector(".nav-parent");
+  parent?.addEventListener("click", (e) => {
+    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+    e.preventDefault();
+    const open = item.classList.toggle("is-open");
+    parent.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", (e) => {
+    if (!item.contains(e.target)) {
+      item.classList.remove("is-open");
+      parent?.setAttribute("aria-expanded", "false");
+    }
+  });
+})();
+</script>

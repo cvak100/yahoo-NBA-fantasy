@@ -13,7 +13,7 @@
 
   function setSyncing(on) {
     btnSync.disabled = on;
-    btnLabel.textContent = on ? "Refreshing…" : "Refresh from Yahoo";
+    btnLabel.textContent = on ? "Refreshing…" : "Refresh";
     btnSpinner.hidden = !on;
   }
 
@@ -336,7 +336,7 @@
     `;
 
     if (!slots.length) {
-      roster.innerHTML = `<div class="slot"><div class="pos">—</div><div class="slot-main"><p class="slot-title">No data</p><p class="slot-empty">Click Refresh from Yahoo</p></div></div>`;
+      roster.innerHTML = `<div class="slot"><div class="pos">—</div><div class="slot-main"><p class="slot-title">No data</p><p class="slot-empty">Click Refresh</p></div></div>`;
       return;
     }
 
@@ -497,7 +497,7 @@
     const myBox = $("#myMatchup");
     const catGrid = $("#catGrid");
     if (!entry) {
-      myBox.innerHTML = `<div class="match-side"><p class="name">No matchup</p><p class="mgr">Refresh from Yahoo</p></div>`;
+      myBox.innerHTML = `<div class="match-side"><p class="name">No matchup</p><p class="mgr">Click Refresh</p></div>`;
       catGrid.innerHTML = "";
       return;
     }
@@ -583,7 +583,7 @@
     if (sub) {
       sub.textContent = schedule.length
         ? `${schedule.length} week${schedule.length === 1 ? "" : "s"}`
-        : "No schedule yet — run Refresh from Yahoo";
+        : "No schedule yet — run Refresh";
     }
     list.innerHTML = schedule.length
       ? schedule
@@ -769,7 +769,7 @@
     renderDashboard(data);
     if (!data.has_data) {
       showAlert(
-        "No saved data yet. Open Chrome with start_chrome_debug.bat, then click Refresh from Yahoo."
+        "No saved data yet. Open Chrome with start_chrome_debug.bat, then click Refresh."
       );
     } else {
       showAlert("");

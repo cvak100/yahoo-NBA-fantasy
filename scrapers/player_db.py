@@ -694,6 +694,9 @@ def ingest_player_from_raw(
         "profile_url": raw.get("profile_url") or (existing or {}).get("profile_url"),
         "yahoo_rank": yrank if yrank is not None else (existing or {}).get("yahoo_rank"),
         "owned_pct": raw.get("owned_pct") or (existing or {}).get("owned_pct"),
+        "fantasy_owner": raw.get("status")
+        or raw.get("fantasy_owner")
+        or (existing or {}).get("fantasy_owner"),
     }
     player_id = upsert_player(conn, player, scraped_at=scraped_at)
     stats["players_upserted"] += 1

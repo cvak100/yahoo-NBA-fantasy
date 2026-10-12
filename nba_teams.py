@@ -120,6 +120,10 @@ for _t in _TEAMS:
             _BY_KEY[key] = entry
 
 
+def all_teams() -> list[dict[str, Any]]:
+    return [{**t, "logo": logo_url(t["abbr"])} for t in _TEAMS]
+
+
 def resolve_team(team: str | None) -> dict[str, Any] | None:
     key = normalize_team_key(team)
     if not key or key in {"—", "-", "team", "unknown"}:

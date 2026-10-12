@@ -35,7 +35,7 @@ DEFAULT_REFRESH_AVAILABLE_COUNT = 100
 MIN_REFRESH_AVAILABLE_COUNT = 1
 MAX_REFRESH_AVAILABLE_COUNT = 500
 
-# Pozicije: kratice -> prikaz
+# Positions: abbreviation -> label
 POSITION_LABELS = {
     "PG": "Point Guard",
     "SG": "Shooting Guard",

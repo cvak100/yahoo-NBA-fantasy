@@ -10,20 +10,25 @@ from db import (
     add_favourite,
     clear_players_db,
     clear_watchlist,
+    create_note,
+    delete_note,
     delete_player,
     delete_players,
     fantasy_news_counts,
+    get_note,
     get_player_by_yahoo_id,
     get_player_detail,
     get_yahoo_ids,
     list_fantasy_news,
     list_injuries_by_team,
+    list_notes,
     list_players,
     list_players_by_team,
     list_roster_trends,
     list_watchlist_by_position,
     remove_favourite,
     sync_fantasy_news_links,
+    update_note,
 )
 from app_settings import load_app_settings, save_app_settings
 from jobs import active_job, cancel_job, get_job, pause_job, resume_job, scrape_busy, start_job
@@ -205,6 +210,21 @@ def free_players_page():
     )
 
 
+@app.get("/analitika")
+@app.get("/analytics")
+def analytics_page():
+    return render_template(
+        "analytics.html", league_id=config.LEAGUE_ID, active="analytics"
+    )
+
+
+@app.get("/scouting")
+def scouting_page():
+    return render_template(
+        "scouting.html", league_id=config.LEAGUE_ID, active="scouting"
+    )
+
+
 @app.get("/settings")
 def settings_page():
     return render_template("settings.html", league_id=config.LEAGUE_ID, active="settings")
@@ -222,6 +242,140 @@ def api_roster():
     from roster_view import load_my_roster_page
 
     return jsonify(load_my_roster_page())
+
+
+@app.get("/api/analytics")
+def api_analytics():
+    from analytics_view import load_analytics
+
+    try:
+        return jsonify(load_analytics())
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/scouting")
+def api_scouting():
+    from opponent_scouting import build_scouting
+
+    team_id = (request.args.get("team_id") or "").strip() or None
+    try:
+        return jsonify(build_scouting(team_id))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/scouting/<team_id>/refresh")
+def api_scouting_refresh(team_id: str):
+    from opponent_scouting import sync_opponent_roster
+
+    tid = str(team_id).strip()
+
+    def run(progress):
+        return sync_opponent_roster(tid, progress_cb=progress)
+
+    return jsonify(
+        start_job(
+            kind="opponent_scouting",
+            label=f"Scouting roster {tid}",
+            fn=run,
+        )
+    )
+
+
+@app.get("/api/notes")
+def api_notes_list():
+    try:
+        return jsonify({"ok": True, "notes": list_notes()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/notes/link-options")
+def api_notes_link_options():
+    try:
+        from nba_teams import all_teams
+        from opponent_scouting import list_fantasy_teams
+
+        players = [
+            {
+                "id": str(p["id"]),
+                "label": p.get("full_name") or f"Player {p['id']}",
+            }
+            for p in list_players()
+        ]
+        nba = [
+            {"id": t["abbr"], "label": f"{t['abbr']} · {t['name']}"}
+            for t in all_teams()
+        ]
+        fantasy = [
+            {
+                "id": str(t["team_id"]),
+                "label": t.get("name") or f"Team {t['team_id']}",
+            }
+            for t in list_fantasy_teams()
+        ]
+        return jsonify(
+            {
+                "ok": True,
+                "players": players,
+                "nba_teams": nba,
+                "fantasy_teams": fantasy,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/notes")
+def api_notes_create():
+    payload = request.get_json(silent=True) or {}
+    try:
+        note = create_note(
+            title=payload.get("title"),
+            body=payload.get("body") or "",
+            links=payload.get("links"),
+        )
+        return jsonify({"ok": True, "note": note})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/notes/<int:note_id>")
+def api_notes_get(note_id: int):
+    note = get_note(note_id)
+    if not note:
+        return jsonify({"ok": False, "error": "Note not found."}), 404
+    return jsonify({"ok": True, "note": note})
+
+
+@app.put("/api/notes/<int:note_id>")
+@app.post("/api/notes/<int:note_id>")
+def api_notes_update(note_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        note = update_note(
+            note_id,
+            title=payload.get("title"),
+            body=payload.get("body"),
+            links=payload.get("links"),
+        )
+        if not note:
+            return jsonify({"ok": False, "error": "Note not found."}), 404
+        return jsonify({"ok": True, "note": note})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.delete("/api/notes/<int:note_id>")
+def api_notes_delete(note_id: int):
+    try:
+        ok = delete_note(note_id)
+        if not ok:
+            return jsonify({"ok": False, "error": "Note not found."}), 404
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.get("/api/app-settings")
@@ -283,7 +437,9 @@ def api_rules():
 @app.get("/api/db/players")
 def api_db_players():
     try:
-        players = list_players()
+        from fantasy_ownership import enrich_players_with_ownership
+
+        players = enrich_players_with_ownership(list_players())
         return jsonify({"ok": True, "count": len(players), "players": players})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500

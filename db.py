@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS players (
     profile_url TEXT,
     yahoo_rank INTEGER,
     owned_pct TEXT,
+    fantasy_owner TEXT,
     updated_at TEXT NOT NULL
 );
 
@@ -128,12 +129,31 @@ CREATE TABLE IF NOT EXISTS roster_trends (
     scraped_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    body TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS note_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    link_type TEXT NOT NULL,
+    link_id TEXT NOT NULL,
+    link_label TEXT,
+    UNIQUE(note_id, link_type, link_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_player_stats_player ON player_stats(player_id, record_type);
 CREATE INDEX IF NOT EXISTS idx_depth_player ON player_depth_chart(player_id, position);
 CREATE INDEX IF NOT EXISTS idx_fantasy_news_published ON fantasy_news(published_iso DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_fantasy_news_player ON fantasy_news(player_id);
 CREATE INDEX IF NOT EXISTS idx_injuries_team ON injuries(team_name, player_name);
 CREATE INDEX IF NOT EXISTS idx_roster_trends_source ON roster_trends(source, rank);
+CREATE INDEX IF NOT EXISTS idx_note_links_note ON note_links(note_id);
+CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(link_type, link_id);
 """
 
 WATCHLIST_POSITION_ORDER = ("PG", "SG", "G", "SF", "PF", "F", "C", "Util")
@@ -144,6 +164,12 @@ def content_hash(*parts: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(players)").fetchall()}
+    if "fantasy_owner" not in cols:
+        conn.execute("ALTER TABLE players ADD COLUMN fantasy_owner TEXT")
+
+
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or config.DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,6 +178,7 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 60000")
     conn.executescript(SCHEMA)
+    _ensure_columns(conn)
     return conn
 
 
@@ -160,8 +187,8 @@ def upsert_player(conn: sqlite3.Connection, player: dict[str, Any], *, scraped_a
         """
         INSERT INTO players (
             yahoo_id, first_name, last_name, full_name, positions, nba_team,
-            profile_url, yahoo_rank, owned_pct, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            profile_url, yahoo_rank, owned_pct, fantasy_owner, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(yahoo_id) DO UPDATE SET
             first_name=excluded.first_name,
             last_name=excluded.last_name,
@@ -171,6 +198,7 @@ def upsert_player(conn: sqlite3.Connection, player: dict[str, Any], *, scraped_a
             profile_url=excluded.profile_url,
             yahoo_rank=excluded.yahoo_rank,
             owned_pct=excluded.owned_pct,
+            fantasy_owner=COALESCE(excluded.fantasy_owner, players.fantasy_owner),
             updated_at=excluded.updated_at
         """,
         (
@@ -183,6 +211,7 @@ def upsert_player(conn: sqlite3.Connection, player: dict[str, Any], *, scraped_a
             player.get("profile_url"),
             player.get("yahoo_rank"),
             player.get("owned_pct"),
+            player.get("fantasy_owner"),
             scraped_at,
         ),
     )
@@ -190,6 +219,37 @@ def upsert_player(conn: sqlite3.Connection, player: dict[str, Any], *, scraped_a
         "SELECT id FROM players WHERE yahoo_id = ?", (player["yahoo_id"],)
     ).fetchone()
     return int(row["id"])
+
+
+def set_fantasy_owners(
+    owners: dict[str, str],
+    *,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Set fantasy_owner for yahoo_ids. owners: yahoo_id → label (You / team / FA)."""
+    if not owners:
+        return 0
+    own_conn = conn is None
+    if own_conn:
+        conn = connect()
+    updated = 0
+    try:
+        for yahoo_id, label in owners.items():
+            pid = str(yahoo_id or "").strip()
+            owner = str(label or "").strip()
+            if not pid or not owner:
+                continue
+            cur = conn.execute(
+                "UPDATE players SET fantasy_owner = ? WHERE yahoo_id = ?",
+                (owner, pid),
+            )
+            updated += int(cur.rowcount or 0)
+        if own_conn:
+            conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+    return updated
 
 
 def insert_stat_if_new(conn: sqlite3.Connection, row: dict[str, Any]) -> bool:
@@ -1379,3 +1439,166 @@ def list_watchlist_by_position(
         "groups": groups,
         "count": len(players),
     }
+
+
+_NOTE_LINK_TYPES = frozenset({"player", "nba_team", "fantasy_team"})
+
+
+def _note_now() -> str:
+    from store import utc_now_iso
+
+    return utc_now_iso()
+
+
+def _note_links(conn: sqlite3.Connection, note_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT id, note_id, link_type, link_id, link_label
+        FROM note_links
+        WHERE note_id = ?
+        ORDER BY link_type ASC, link_label ASC, id ASC
+        """,
+        (note_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _note_dict(conn: sqlite3.Connection, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+    note = dict(row)
+    note["links"] = _note_links(conn, int(note["id"]))
+    return note
+
+
+def list_notes(conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM notes ORDER BY updated_at DESC, id DESC"
+        ).fetchall()
+        return [_note_dict(conn, r) for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
+def get_note(note_id: int, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        row = conn.execute("SELECT * FROM notes WHERE id = ?", (int(note_id),)).fetchone()
+        if not row:
+            return None
+        return _note_dict(conn, row)
+    finally:
+        if own:
+            conn.close()
+
+
+def _replace_note_links(
+    conn: sqlite3.Connection, note_id: int, links: list[dict[str, Any]] | None
+) -> None:
+    conn.execute("DELETE FROM note_links WHERE note_id = ?", (note_id,))
+    if not links:
+        return
+    seen: set[tuple[str, str]] = set()
+    for link in links:
+        link_type = str((link or {}).get("link_type") or "").strip()
+        link_id = str((link or {}).get("link_id") or "").strip()
+        if link_type not in _NOTE_LINK_TYPES or not link_id:
+            continue
+        key = (link_type, link_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        label = str((link or {}).get("link_label") or link_id).strip() or link_id
+        conn.execute(
+            """
+            INSERT INTO note_links (note_id, link_type, link_id, link_label)
+            VALUES (?, ?, ?, ?)
+            """,
+            (note_id, link_type, link_id, label),
+        )
+
+
+def create_note(
+    *,
+    title: str | None = None,
+    body: str = "",
+    links: list[dict[str, Any]] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        now = _note_now()
+        cur = conn.execute(
+            """
+            INSERT INTO notes (title, body, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ((title or "").strip() or None, body or "", now, now),
+        )
+        note_id = int(cur.lastrowid)
+        _replace_note_links(conn, note_id, links)
+        if own:
+            conn.commit()
+        note = get_note(note_id, conn=conn)
+        assert note is not None
+        return note
+    finally:
+        if own:
+            conn.close()
+
+
+def update_note(
+    note_id: int,
+    *,
+    title: str | None = None,
+    body: str | None = None,
+    links: list[dict[str, Any]] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        existing = conn.execute(
+            "SELECT * FROM notes WHERE id = ?", (int(note_id),)
+        ).fetchone()
+        if not existing:
+            return None
+        new_title = existing["title"] if title is None else ((title or "").strip() or None)
+        new_body = existing["body"] if body is None else (body or "")
+        conn.execute(
+            """
+            UPDATE notes SET title = ?, body = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (new_title, new_body, _note_now(), int(note_id)),
+        )
+        if links is not None:
+            _replace_note_links(conn, int(note_id), links)
+        if own:
+            conn.commit()
+        return get_note(int(note_id), conn=conn)
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_note(note_id: int, conn: sqlite3.Connection | None = None) -> bool:
+    own = conn is None
+    if own:
+        conn = connect()
+    try:
+        cur = conn.execute("DELETE FROM notes WHERE id = ?", (int(note_id),))
+        if own:
+            conn.commit()
+        return cur.rowcount > 0
+    finally:
+        if own:
+            conn.close()

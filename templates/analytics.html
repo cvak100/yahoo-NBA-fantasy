@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analytics · Snopcministri</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=53">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Analytics</h1>
+        <p class="sub">Category strength — where you are strong or weak vs the league in the 9 cats.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnRefreshAnalytics">
+          <span class="btn-label">Refresh</span>
+        </button>
+        {% include "partials/header_tools.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="analytics-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 id="analyticsTeamName">Category strength</h2>
+            <p class="panel-sub" id="analyticsSub">Loading…</p>
+          </div>
+        </div>
+        <div class="strength-strip" id="strengthStrip"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Best players by category</h2>
+            <p class="panel-sub">Top 5 in your local DB per category + MVP (overall z-score) · yours highlighted</p>
+          </div>
+        </div>
+        <div class="table-wrap analytics-columns-wrap">
+          <div class="analytics-columns" id="analyticsColumns"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
+  <script src="{{ url_for('static', filename='js/analytics.js') }}?v=5"></script>
+</body>
+</html>

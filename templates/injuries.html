@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -21,11 +21,10 @@
       </div>
       <div class="actions">
         <button type="button" class="btn primary" id="btnRefreshInjuries" title="Fetch from cbssports.com/nba/injuries">
-          <span class="btn-label">Refresh injuries</span>
+          <span class="btn-label">Refresh</span>
           <span class="btn-spinner" hidden></span>
         </button>
-        <button type="button" class="btn ghost" id="btnReloadInjuries">Reload</button>
-        {% include "partials/settings_link.html" %}
+        {% include "partials/header_tools.html" %}
       </div>
     </header>
 

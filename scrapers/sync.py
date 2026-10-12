@@ -115,7 +115,7 @@ def apply_my_team_selection(*, persist: bool = True) -> dict[str, Any]:
     }
     if not same_team:
         new_my_team["note"] = (
-            "Team switched in Settings. Run Refresh from Yahoo for this team's "
+            "Team switched in Settings. Run Refresh for this team's "
             "roster details and full season matchups."
         )
 

@@ -1,7 +1,7 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
   const alertEl = $("#alert");
-  const DB_COLS = 17;
+  const DB_COLS = 18;
   const SEARCH_COLS = 16;
 
   function showAlert(msg) {
@@ -86,6 +86,7 @@
 
   let allDbPlayers = [];
   const SHOW_LIMIT_KEY = "yahoonba_db_show_limit";
+  const HIDE_TAKEN_KEY = "yahoonba_hide_taken";
   const POS_FILTER_KEY = "yahoonba_db_pos_filters";
 
   function getShowLimit() {
@@ -190,7 +191,16 @@
   function playerMatchesQuery(p, q) {
     if (!q) return true;
     const hay = normalizeSearch(
-      [p.full_name, p.first_name, p.last_name, p.nba_team, p.positions, p.yahoo_rank]
+      [
+        p.full_name,
+        p.first_name,
+        p.last_name,
+        p.nba_team,
+        p.positions,
+        p.yahoo_rank,
+        p.fantasy_team,
+        p.fantasy_is_mine ? "you mine" : "",
+      ]
         .filter((x) => x != null && x !== "")
         .join(" ")
     );
@@ -198,10 +208,33 @@
     return tokens.every((t) => hay.includes(t));
   }
 
+  function hideTakenEnabled() {
+    return Boolean($("#chkHideTaken")?.checked);
+  }
+
+  function playerIsTaken(p) {
+    if (p.fantasy_is_mine) return true;
+    if (p.fantasy_is_taken) return true;
+    const owner = String(p.fantasy_team || "").trim();
+    if (!owner) return false;
+    const u = owner.toUpperCase();
+    return !(u === "FA" || u === "W" || u === "WA" || u.startsWith("W (") || u === "WAIVERS");
+  }
+
+  function ownerLabel(p) {
+    if (p.fantasy_is_mine) return "You";
+    const owner = String(p.fantasy_team || "").trim();
+    return owner || "—";
+  }
+
   function filteredDbPlayers() {
     const q = getPlayerSearchQuery();
+    const hideTaken = hideTakenEnabled();
     return allDbPlayers.filter(
-      (p) => playerMatchesQuery(p, q) && playerMatchesPositions(p)
+      (p) =>
+        playerMatchesQuery(p, q) &&
+        playerMatchesPositions(p) &&
+        (!hideTaken || !playerIsTaken(p))
     );
   }
 
@@ -209,7 +242,7 @@
     const filtered = filteredDbPlayers();
     const q = getPlayerSearchQuery();
     // While searching / filtering, show all matches (still cap at 500 for safety).
-    if (q || hasActivePosFilter()) return filtered.slice(0, 500);
+    if (q || hasActivePosFilter() || hideTakenEnabled()) return filtered.slice(0, 500);
     const limit = getShowLimit();
     if (limit == null) return filtered;
     return filtered.slice(0, limit);
@@ -225,12 +258,13 @@
     const sub = $("#dbSub");
     if (!total) {
       sub.textContent = "0 players saved locally";
-    } else if (q || posOn) {
+    } else if (q || posOn || hideTakenEnabled()) {
       const bits = [];
       if (q) bits.push(`“${$("#dbPlayerSearch")?.value.trim() || q}”`);
       const selected = getSelectedPositions();
       if (selected.length) bits.push(selected.join("/"));
       if (multiPosOnly()) bits.push("multi-pos");
+      if (hideTakenEnabled()) bits.push("hide taken");
       sub.textContent = `${filtered.length} match${filtered.length === 1 ? "" : "es"} · ${bits.join(" · ")} · ${total} in DB`;
     } else if (players.length < total) {
       sub.textContent = `Showing ${players.length} of ${total} players`;
@@ -270,6 +304,7 @@
             </td>
             <td>${esc(p.positions) || "—"}</td>
             <td>${esc(p.nba_team) || "—"}</td>
+            <td class="${p.fantasy_is_mine ? "owner-mine" : playerIsTaken(p) ? "owner-taken" : "owner-free"}">${esc(ownerLabel(p))}</td>
             <td class="num">${cell(p.owned_pct)}</td>
             ${statCells(p)}
             <td class="ta-end">
@@ -671,15 +706,6 @@
   }
 
   async function refreshAllPlayers(btn) {
-    if (
-      !window.confirm(
-        "Refresh ALL players in the database from Yahoo?\n\n" +
-          "This re-scrapes news, game logs, season stats and depth charts.\n" +
-          "You can keep browsing the page while it runs."
-      )
-    ) {
-      return;
-    }
     await runBackgroundJob({
       url: "/api/refresh-all-players",
       btn,
@@ -699,14 +725,6 @@
     const ids = selectedPlayerIds();
     if (!ids.length) {
       showAlert("Select at least one player first.");
-      return;
-    }
-    if (
-      !window.confirm(
-        `Refresh ${ids.length} selected player${ids.length === 1 ? "" : "s"} from Yahoo?\n` +
-          "You can keep browsing while it runs."
-      )
-    ) {
       return;
     }
     const idle = btn.querySelector(".btn-label")?.textContent || "Refresh selected";
@@ -927,6 +945,14 @@
       renderDbPlayers();
     });
   }
+  const chkHideTaken = $("#chkHideTaken");
+  if (chkHideTaken) {
+    chkHideTaken.checked = localStorage.getItem(HIDE_TAKEN_KEY) === "1";
+    chkHideTaken.addEventListener("change", () => {
+      localStorage.setItem(HIDE_TAKEN_KEY, chkHideTaken.checked ? "1" : "0");
+      renderDbPlayers();
+    });
+  }
   const dbPlayerSearch = $("#dbPlayerSearch");
   if (dbPlayerSearch) {
     let searchTimer = null;
@@ -980,15 +1006,6 @@
     const picked = document.querySelector('input[name="autoAddLimit"]:checked');
     const raw = (picked?.value || "10").trim().toLowerCase();
     const limit = raw === "all" ? "all" : Number(raw);
-    if (limit === "all") {
-      const ok = window.confirm(
-        "Add ALL missing players from the Yahoo ranked list?\n\n" +
-          "That is typically ~800 names (minus those already in your DB).\n" +
-          "Each player gets full details — this can take a long time.\n" +
-          "Keep Chrome debug open."
-      );
-      if (!ok) return;
-    }
     closeAutoAddModal();
     await bulkAddPlayers(
       limit === "all" || Number.isFinite(limit) ? limit : 10,

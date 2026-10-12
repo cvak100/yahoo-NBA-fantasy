@@ -137,7 +137,7 @@
 
     const body = $("#rosterBody");
     if (!slots.length) {
-      body.innerHTML = `<tr><td colspan="15">No roster data — run Refresh from Yahoo on the Dashboard.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="15">No roster data — run Refresh on the Dashboard.</td></tr>`;
     } else {
       body.innerHTML = slots.map(slotRow).join("");
       body.querySelectorAll("tr[data-player-id]").forEach((tr) => {

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=37">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -20,13 +20,15 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" class="btn primary" id="btnAddPlayerJump">Add player</button>
+        <button type="button" class="btn ghost" id="btnAddPlayerJump">Add player</button>
         <button type="button" class="btn ghost" id="btnAutoAdd" title="Add top-ranked players missing from DB with full details">
           <span class="btn-label">Add auto player</span>
           <span class="btn-spinner" hidden></span>
         </button>
-        <button type="button" class="btn ghost" id="btnRefreshDb">Refresh list</button>
-        {% include "partials/settings_link.html" %}
+        <button type="button" class="btn primary" id="btnRefreshDb">
+          <span class="btn-label">Refresh</span>
+        </button>
+        {% include "partials/header_tools.html" %}
       </div>
     </header>
 
@@ -73,6 +75,10 @@
                 <option value="200">200</option>
                 <option value="all">All</option>
               </select>
+            </label>
+            <label class="hide-taken-toggle" for="chkHideTaken" title="Hide players already on a fantasy roster">
+              <input type="checkbox" id="chkHideTaken">
+              <span>Hide taken</span>
             </label>
             <button
               type="button"
@@ -132,6 +138,7 @@
                 <th>Player</th>
                 <th>Pos</th>
                 <th>Team</th>
+                <th>Owner</th>
                 <th class="num">%Own</th>
                 <th class="num">GP</th>
                 <th class="num">FG%</th>
@@ -147,7 +154,7 @@
               </tr>
             </thead>
             <tbody id="dbBody">
-              <tr><td colspan="17" class="muted">Loading…</td></tr>
+              <tr><td colspan="18" class="muted">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -251,6 +258,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
-  <script src="{{ url_for('static', filename='js/search.js') }}?v=19"></script>
+  <script src="{{ url_for('static', filename='js/search.js') }}?v=21"></script>
 </body>
 </html>

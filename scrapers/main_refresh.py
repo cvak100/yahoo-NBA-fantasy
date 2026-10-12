@@ -382,6 +382,20 @@ def apply_roster_to_my_team(roster_rows: list[dict[str, Any]], *, team_id: str |
             "Roster slots from league settings. Players appear after the draft."
         )
     save_json(config.MY_TEAM_PATH, my_team)
+    # Persist ownership so Players → Owner / Hide taken stay accurate.
+    try:
+        from db import set_fantasy_owners
+
+        owners = {}
+        for s in slots:
+            p = s.get("player") or {}
+            yid = str(p.get("yahoo_id") or "").strip()
+            if yid:
+                owners[yid] = "You"
+        if owners:
+            set_fantasy_owners(owners)
+    except Exception:
+        pass
     return my_team
 
 
