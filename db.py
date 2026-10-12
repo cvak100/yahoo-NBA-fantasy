@@ -252,6 +252,98 @@ def set_fantasy_owners(
     return updated
 
 
+def set_yahoo_current_ranks(
+    ranks: dict[str, int | str | None],
+    *,
+    owned: dict[str, str] | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Set yahoo_rank from Yahoo Rankings → Current (not Pre-Season).
+
+    ranks values: positive int, or None to clear a stale Pre-Season value when
+    Yahoo Current is blank. Optional owned: yahoo_id → %Ros (e.g. \"100%\").
+    """
+    if not ranks and not owned:
+        return 0
+    own_conn = conn is None
+    if own_conn:
+        conn = connect()
+    updated = 0
+    owned = owned or {}
+    try:
+        ids = set(ranks) | set(owned)
+        for yahoo_id in ids:
+            pid = str(yahoo_id or "").strip()
+            if not pid:
+                continue
+            fields: list[str] = []
+            vals: list[Any] = []
+            if pid in ranks:
+                raw_rank = ranks[pid]
+                if raw_rank is None or str(raw_rank).strip() == "":
+                    fields.append("yahoo_rank = ?")
+                    vals.append(None)
+                else:
+                    try:
+                        yrank = int(str(raw_rank).strip())
+                    except (TypeError, ValueError):
+                        yrank = None
+                    if yrank is not None and yrank > 0:
+                        fields.append("yahoo_rank = ?")
+                        vals.append(yrank)
+            if pid in owned:
+                pct = str(owned[pid] or "").strip()
+                if pct:
+                    fields.append("owned_pct = ?")
+                    vals.append(pct)
+            if not fields:
+                continue
+            vals.append(pid)
+            cur = conn.execute(
+                f"UPDATE players SET {', '.join(fields)} WHERE yahoo_id = ?",
+                vals,
+            )
+            updated += int(cur.rowcount or 0)
+        if own_conn:
+            conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+    return updated
+
+
+def clear_stale_you_owners(
+    keep_yahoo_ids: set[str] | list[str],
+    *,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Players marked You but no longer on my roster → FA."""
+    keep = {str(x).strip() for x in (keep_yahoo_ids or []) if str(x).strip()}
+    own_conn = conn is None
+    if own_conn:
+        conn = connect()
+    try:
+        rows = conn.execute(
+            "SELECT yahoo_id FROM players WHERE fantasy_owner = 'You'"
+        ).fetchall()
+        cleared = 0
+        for r in rows:
+            yid = str(r["yahoo_id"] or "").strip()
+            if not yid or yid in keep:
+                continue
+            conn.execute(
+                "UPDATE players SET fantasy_owner = ? WHERE yahoo_id = ?",
+                ("FA", yid),
+            )
+            cleared += 1
+        if own_conn:
+            conn.commit()
+        return cleared
+    finally:
+        if own_conn:
+            conn.close()
+
+
 def insert_stat_if_new(conn: sqlite3.Connection, row: dict[str, Any]) -> bool:
     try:
         cols = [

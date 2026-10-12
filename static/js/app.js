@@ -419,6 +419,32 @@
     "FG%", "FT%", "3PTM", "PTS", "REB", "AST", "ST", "BLK", "TO",
   ]);
 
+  let teamLogoById = {};
+
+  function rememberTeamLogos(standings, myTeam) {
+    const map = {};
+    for (const row of standings?.rows || []) {
+      const id = String(row.team_id || "").trim();
+      if (id && row.logo) map[id] = row.logo;
+    }
+    const myId = String(myTeam?.team_id || "").trim();
+    if (myId && myTeam?.logo) map[myId] = myTeam.logo;
+    teamLogoById = map;
+  }
+
+  function sideLogo(side) {
+    const id = String(side?.team_id || "").trim();
+    const src = side?.logo || (id ? teamLogoById[id] : "") || "";
+    if (!src) {
+      const initials = String(side?.name || "?")
+        .trim()
+        .slice(0, 2)
+        .toUpperCase();
+      return `<span class="match-logo fallback" aria-hidden="true">${escapeHtml(initials)}</span>`;
+    }
+    return `<img class="match-logo" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async">`;
+  }
+
   let matchupState = {
     schedule: [],
     index: 0,
@@ -506,16 +532,26 @@
     const { hs, as_ } = scorePair(entry);
     myBox.innerHTML = `
       <div class="match-side">
-        <p class="name">${escapeHtml(home.name || "—")}</p>
-        <p class="mgr">${escapeHtml(home.manager || " ")}</p>
+        <div class="match-side-head">
+          ${sideLogo(home)}
+          <div class="match-side-text">
+            <p class="name">${escapeHtml(home.name || "—")}</p>
+            <p class="mgr">${escapeHtml(home.manager || " ")}</p>
+          </div>
+        </div>
       </div>
       <div class="match-score">
         <div class="nums">${escapeHtml(hs)} – ${escapeHtml(as_)}</div>
-        <div class="vs">CATS</div>
+        <div class="vs" title="Categories won (H2H)">cats won</div>
       </div>
       <div class="match-side away">
-        <p class="name">${escapeHtml(away.name || "—")}</p>
-        <p class="mgr">${escapeHtml(away.manager || " ")}</p>
+        <div class="match-side-head">
+          <div class="match-side-text">
+            <p class="name">${escapeHtml(away.name || "—")}</p>
+            <p class="mgr">${escapeHtml(away.manager || " ")}</p>
+          </div>
+          ${sideLogo(away)}
+        </div>
       </div>
     `;
     const cats = (entry.categories || []).filter((c) => SCORING_STATS.has(c.stat));
@@ -660,9 +696,13 @@
             : "vs";
         return `
           <div class="match-row ${m.is_mine ? "mine" : ""}">
-            <span class="side">${escapeHtml(m.home?.name || "—")}</span>
+            <span class="side">
+              <span class="match-side-inline">${sideLogo(m.home)}<span>${escapeHtml(m.home?.name || "—")}</span></span>
+            </span>
             <span class="mid">${escapeHtml(score)}</span>
-            <span class="side right">${escapeHtml(m.away?.name || "—")}</span>
+            <span class="side right">
+              <span class="match-side-inline reverse">${sideLogo(m.away)}<span>${escapeHtml(m.away?.name || "—")}</span></span>
+            </span>
           </div>
         `;
       })
@@ -730,6 +770,7 @@
     bits.push(`Synced: ${fmtTime(meta.synced_at || myTeam.synced_at)}`);
     $("#leagueMeta").textContent = bits.join(" · ");
 
+    rememberTeamLogos(standings, myTeam);
     renderRoster(myTeam);
     renderStandings(standings);
     renderMatchups(matchups, myTeam.team_id || meta.my_team_id);

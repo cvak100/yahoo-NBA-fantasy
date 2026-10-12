@@ -7,9 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=59">
 </head>
-<body>
+<body data-league-id="{{ league_id }}">
   <div class="bg-grid" aria-hidden="true"></div>
   <div class="app">
     <header class="top">
@@ -20,14 +20,6 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" class="btn ghost" id="btnAddPlayerJump">Add player</button>
-        <button type="button" class="btn ghost" id="btnAutoAdd" title="Add top-ranked players missing from DB with full details">
-          <span class="btn-label">Add auto player</span>
-          <span class="btn-spinner" hidden></span>
-        </button>
-        <button type="button" class="btn primary" id="btnRefreshDb">
-          <span class="btn-label">Refresh</span>
-        </button>
         {% include "partials/header_tools.html" %}
       </div>
     </header>
@@ -39,6 +31,7 @@
         <div class="job-bar-head-meta">
           <button type="button" id="btnPauseResume" class="btn ghost tiny job-pause-resume" hidden data-mode="pause">Pause</button>
           <button type="button" id="btnCancelJob" class="btn ghost tiny job-cancel" hidden>Stop</button>
+          <span id="jobBarTimer" class="job-bar-timer" aria-live="polite">0:00</span>
           <span id="jobBarMeta" class="job-bar-meta">—</span>
         </div>
       </div>
@@ -46,40 +39,34 @@
       <div class="job-bar-track" aria-hidden="true">
         <div class="job-bar-fill" id="jobBarFill"></div>
       </div>
+      <ol id="jobSteps" class="job-steps" hidden></ol>
       <p class="job-bar-hint">Stop cancels the whole Yahoo job. You can still browse the table while it runs.</p>
     </div>
 
     <main class="search-layout players-layout">
       <section class="panel">
         <div class="panel-head">
-          <div>
-            <h2>In database</h2>
+          <div class="db-head-left">
+            <div class="db-head-title-row">
+              <h2>In database</h2>
+              <label class="player-search" for="dbPlayerSearch">
+                <span class="sr-only">Search players</span>
+                <input
+                  id="dbPlayerSearch"
+                  type="search"
+                  placeholder="Search players…"
+                  autocomplete="off"
+                >
+              </label>
+            </div>
             <p class="panel-sub" id="dbSub">Loading…</p>
           </div>
           <div class="actions bulk-actions">
-            <label class="player-search" for="dbPlayerSearch">
-              <span class="sr-only">Search players</span>
-              <input
-                id="dbPlayerSearch"
-                type="search"
-                placeholder="Search players…"
-                autocomplete="off"
-              >
-            </label>
-            <label class="show-limit" for="dbShowLimit">
-              <span>Show</span>
-              <select id="dbShowLimit" aria-label="Number of players to show">
-                <option value="20" selected>20</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-                <option value="200">200</option>
-                <option value="all">All</option>
-              </select>
-            </label>
-            <label class="hide-taken-toggle" for="chkHideTaken" title="Hide players already on a fantasy roster">
-              <input type="checkbox" id="chkHideTaken">
-              <span>Hide taken</span>
-            </label>
+            <button type="button" class="btn ghost tiny" id="btnAddPlayerJump" title="Add a single player via Yahoo search">Add single</button>
+            <button type="button" class="btn ghost tiny" id="btnAutoAdd" title="Add a batch of top-ranked Yahoo players missing from DB">
+              <span class="btn-label">Add Batch</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
             <button
               type="button"
               class="btn primary tiny"
@@ -111,21 +98,42 @@
             </button>
           </div>
         </div>
-        <div class="pos-filters" id="posFilters" role="group" aria-label="Filter by position">
-          <button type="button" class="pos-filter" data-pos="PG" aria-pressed="false">PG</button>
-          <button type="button" class="pos-filter" data-pos="SG" aria-pressed="false">SG</button>
-          <button type="button" class="pos-filter" data-pos="G" aria-pressed="false">G</button>
-          <button type="button" class="pos-filter" data-pos="SF" aria-pressed="false">SF</button>
-          <button type="button" class="pos-filter" data-pos="PF" aria-pressed="false">PF</button>
-          <button type="button" class="pos-filter" data-pos="F" aria-pressed="false">F</button>
-          <button type="button" class="pos-filter" data-pos="C" aria-pressed="false">C</button>
-          <button
-            type="button"
-            class="pos-filter pos-filter-multi"
-            id="posFilterMulti"
-            aria-pressed="false"
-            title="Players eligible at more than one position"
-          >Multi-pos</button>
+        <div class="pos-filters-row">
+          <div class="pos-filters" id="posFilters" role="group" aria-label="Filter by position">
+            <button type="button" class="pos-filter" data-pos="PG" aria-pressed="false">PG</button>
+            <button type="button" class="pos-filter" data-pos="SG" aria-pressed="false">SG</button>
+            <button type="button" class="pos-filter" data-pos="G" aria-pressed="false">G</button>
+            <button type="button" class="pos-filter" data-pos="SF" aria-pressed="false">SF</button>
+            <button type="button" class="pos-filter" data-pos="PF" aria-pressed="false">PF</button>
+            <button type="button" class="pos-filter" data-pos="F" aria-pressed="false">F</button>
+            <button type="button" class="pos-filter" data-pos="C" aria-pressed="false">C</button>
+            <button
+              type="button"
+              class="pos-filter pos-filter-multi"
+              id="posFilterMulti"
+              aria-pressed="false"
+              title="Players eligible at more than one position"
+            >Multi-pos</button>
+          </div>
+          <div class="pos-filters-meta">
+            <label class="show-limit" for="dbShowLimit">
+              <span>Show</span>
+              <select id="dbShowLimit" aria-label="Number of players to show">
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              class="btn ghost tiny"
+              id="btnHideTaken"
+              title="Hide players already on a fantasy roster"
+              aria-pressed="false"
+            >Hide taken</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table class="players-table wide-stats" id="dbTable">
@@ -134,7 +142,7 @@
                 <th class="col-check">
                   <input type="checkbox" id="chkSelectAll" title="Select all" aria-label="Select all players">
                 </th>
-                <th class="num">Rank</th>
+                <th class="num" title="Yahoo Current rank">Rank</th>
                 <th>Player</th>
                 <th>Pos</th>
                 <th>Team</th>
@@ -258,6 +266,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
-  <script src="{{ url_for('static', filename='js/search.js') }}?v=21"></script>
+  <script src="{{ url_for('static', filename='js/search.js') }}?v=35"></script>
 </body>
 </html>

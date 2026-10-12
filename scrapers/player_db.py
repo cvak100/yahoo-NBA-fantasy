@@ -650,6 +650,17 @@ def _empty_stats() -> dict[str, int]:
     }
 
 
+def _normalize_fantasy_owner(raw: str | None) -> str | None:
+    """Persist team names (not GP crumbs / bare ids) into fantasy_owner."""
+    try:
+        from fantasy_ownership import _resolve_owner_label
+
+        return _resolve_owner_label(raw)
+    except Exception:
+        s = str(raw or "").strip()
+        return s or None
+
+
 def ingest_player_from_raw(
     driver: WebDriver,
     raw: dict[str, Any],
@@ -679,8 +690,14 @@ def ingest_player_from_raw(
 
     full_name = raw.get("name") or raw.get("full_name") or ""
     first, last = split_name(full_name)
+    # yahoo_rank = Yahoo players "Current" ranking (never Pre-Season).
     try:
-        yrank = int(raw.get("rank") or raw.get("yahoo_rank") or 0) or None
+        yrank = int(
+            raw.get("rank")
+            or raw.get("current_rank")
+            or raw.get("yahoo_rank")
+            or 0
+        ) or None
     except ValueError:
         yrank = None
 
@@ -694,8 +711,9 @@ def ingest_player_from_raw(
         "profile_url": raw.get("profile_url") or (existing or {}).get("profile_url"),
         "yahoo_rank": yrank if yrank is not None else (existing or {}).get("yahoo_rank"),
         "owned_pct": raw.get("owned_pct") or (existing or {}).get("owned_pct"),
-        "fantasy_owner": raw.get("status")
-        or raw.get("fantasy_owner")
+        "fantasy_owner": _normalize_fantasy_owner(
+            raw.get("status") or raw.get("fantasy_owner")
+        )
         or (existing or {}).get("fantasy_owner"),
     }
     player_id = upsert_player(conn, player, scraped_at=scraped_at)
@@ -1001,6 +1019,18 @@ def refresh_player_in_db(player_id: int) -> dict[str, Any]:
         team_map=team_map,
         scrape_details=True,
     )
+    # Also refresh fantasy Owner column for this player.
+    try:
+        from fantasy_ownership import update_owner_for_player
+
+        own = update_owner_for_player(
+            driver,
+            yahoo_id=str(existing.get("yahoo_id") or ""),
+            name=str(existing.get("full_name") or ""),
+        )
+        result["fantasy_owner"] = own.get("fantasy_owner")
+    except Exception as exc:
+        result["fantasy_owner_error"] = str(exc)
     result["refreshed"] = True
     return result
 
@@ -1010,7 +1040,105 @@ def refresh_all_players_in_db(
     progress_cb=None,
 ) -> dict[str, Any]:
     """Re-scrape full details for all DB players, or only the given ids."""
+    import time
+
     from chrome_browser import attach_chrome
+
+    def _fmt_sec(sec: float | None) -> str:
+        if sec is None:
+            return "—"
+        s = max(0, int(round(float(sec))))
+        return f"{s // 60}:{s % 60:02d}"
+
+    selected = bool(player_ids)
+    steps: list[dict[str, Any]] = [
+        {"key": "chrome", "label": "Attach Chrome", "status": "pending", "detail": ""},
+    ]
+    if not selected:
+        steps.append(
+            {
+                "key": "owners",
+                "label": "Owners + Current ranks (Yahoo ALL)",
+                "status": "pending",
+                "detail": "",
+            }
+        )
+    steps.extend(
+        [
+            {
+                "key": "team_map",
+                "label": "NBA team map",
+                "status": "pending",
+                "detail": "",
+            },
+            {
+                "key": "players",
+                "label": "Player details",
+                "status": "pending",
+                "detail": "news · gamelog · season · depth · owner",
+            },
+        ]
+    )
+    step_started: dict[str, float] = {}
+
+    def _emit(
+        current: int,
+        total: int,
+        message: str,
+        *,
+        step: str | None = None,
+        status: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        if not progress_cb:
+            return
+        if step is not None:
+            for s in steps:
+                if s["key"] != step:
+                    continue
+                if status:
+                    s["status"] = status
+                if detail is not None:
+                    s["detail"] = detail
+                started = step_started.get(step)
+                if started is not None and s["status"] in {"running", "done"}:
+                    s["elapsed_sec"] = round(time.time() - started, 1)
+                break
+        progress_cb(
+            current,
+            total,
+            message,
+            steps=steps,
+            step=step,
+            status=status,
+            detail=detail,
+        )
+
+    def _begin(key: str, message: str) -> None:
+        for s in steps:
+            if s["status"] == "running":
+                s["status"] = "done"
+                started = step_started.get(s["key"])
+                if started is not None:
+                    s["elapsed_sec"] = round(time.time() - started, 1)
+            if s["key"] == key:
+                s["status"] = "running"
+                s["detail"] = ""
+                s["elapsed_sec"] = None
+        step_started[key] = time.time()
+        _emit(0, max(len(steps), 1), message, step=key, status="running")
+
+    def _done(key: str, detail: str = "") -> None:
+        for s in steps:
+            if s["key"] == key:
+                s["status"] = "done"
+                if detail:
+                    s["detail"] = detail
+                started = step_started.get(key)
+                if started is not None:
+                    s["elapsed_sec"] = round(time.time() - started, 1)
+                break
+        _emit(0, max(len(steps), 1), detail or "Done", step=key, status="done", detail=detail)
 
     conn = connect()
     try:
@@ -1053,7 +1181,7 @@ def refresh_all_players_in_db(
 
     if not rows:
         if progress_cb:
-            progress_cb(0, 0, "No players to refresh.")
+            progress_cb(0, 0, "No players to refresh.", steps=steps)
         return {
             "ok": True,
             "total": 0,
@@ -1063,28 +1191,85 @@ def refresh_all_players_in_db(
             "stats": _empty_stats(),
         }
 
-    label = "selected" if player_ids else "all"
-    print(f"Refreshing {label} {len(rows)} players in DB…", flush=True)
-    if progress_cb:
-        progress_cb(0, len(rows), f"Attaching Chrome ({len(rows)} players)…")
+    n_players = len(rows)
+    label = "selected" if selected else "all"
+    print(f"Refreshing {label} {n_players} players in DB…", flush=True)
+
+    _begin("chrome", f"Attaching Chrome · {n_players} players queued…")
     driver = attach_chrome()
     try:
         driver.set_page_load_timeout(90)
     except Exception:
         pass
+    _done("chrome", "Chrome attached")
+
+    # Owners: full DB refresh → one ALL scrape; selected → per player.
+    ownership_sync: dict[str, Any] = {}
+    if not selected:
+        _begin("owners", "Updating owners + Current ranks from Yahoo (status=ALL)…")
+        try:
+            from fantasy_ownership import sync_ownership_from_yahoo_list
+
+            ownership_sync = sync_ownership_from_yahoo_list(driver, limit=900)
+            detail = (
+                f"{ownership_sync.get('owners') or 0} owners · "
+                f"{ownership_sync.get('ranks') or 0} Current ranks · "
+                f"{ownership_sync.get('mine') or 0} yours"
+            )
+            print(
+                f"Ownership + Current ranks: {ownership_sync.get('owners')} owners, "
+                f"{ownership_sync.get('ranks')} ranks "
+                f"({ownership_sync.get('mine')} yours)",
+                flush=True,
+            )
+            _done("owners", detail)
+        except Exception as exc:
+            ownership_sync = {"ok": False, "error": str(exc)}
+            print(f"Ownership sync failed: {exc}", flush=True)
+            for s in steps:
+                if s["key"] == "owners":
+                    s["status"] = "error"
+                    s["detail"] = str(exc)
+            _emit(0, n_players, f"Owner sync failed: {exc}", step="owners", status="error")
+
+    _begin("team_map", "Building NBA team → Yahoo eteam map…")
     team_map = _nba_team_to_eteam(driver)
+    _done("team_map", f"{len(team_map)} teams mapped")
+
     scraped_at = utc_now_iso()
     totals = _empty_stats()
     refreshed = 0
     failed: list[dict[str, Any]] = []
+    owners_updated = 0
+    players_t0 = time.time()
+
+    _begin(
+        "players",
+        f"Refreshing player pages · 0/{n_players} · news · gamelog · season · depth…",
+    )
 
     conn = connect()
     try:
         for i, existing in enumerate(rows, start=1):
             name = existing.get("full_name") or existing.get("yahoo_id")
-            print(f"[{i}/{len(rows)}] {name}", flush=True)
-            if progress_cb:
-                progress_cb(i - 1, len(rows), f"Refreshing {name} ({i}/{len(rows)})")
+            print(f"[{i}/{n_players}] {name}", flush=True)
+            elapsed = time.time() - players_t0
+            per = elapsed / max(i - 1, 1) if i > 1 else None
+            eta = (per * (n_players - i + 1)) if per else None
+            eta_bit = f" · ETA ~{_fmt_sec(eta)}" if eta is not None else ""
+            rate_bit = f" · {_fmt_sec(per)}/player" if per else ""
+            msg = (
+                f"Refreshing {name} · {i}/{n_players}"
+                f" · news+gamelog+season+depth{rate_bit}{eta_bit}"
+            )
+            _emit(
+                i - 1,
+                n_players,
+                msg,
+                step="players",
+                status="running",
+                detail=f"{name} · {i}/{n_players} · ok {refreshed} · fail {len(failed)}{eta_bit}",
+            )
             try:
                 result = ingest_player_from_raw(
                     driver,
@@ -1096,6 +1281,19 @@ def refresh_all_players_in_db(
                 )
                 for k, v in (result.get("stats") or {}).items():
                     totals[k] = totals.get(k, 0) + v
+                if selected:
+                    try:
+                        from fantasy_ownership import update_owner_for_player
+
+                        own = update_owner_for_player(
+                            driver,
+                            yahoo_id=str(existing.get("yahoo_id") or ""),
+                            name=str(name or ""),
+                        )
+                        if own.get("fantasy_owner"):
+                            owners_updated += 1
+                    except Exception as own_exc:
+                        print(f"  owner skip {name}: {own_exc}", flush=True)
                 refreshed += 1
             except Exception as exc:
                 print(f"  FAILED {name}: {exc}", flush=True)
@@ -1108,20 +1306,49 @@ def refresh_all_players_in_db(
                     }
                 )
             if progress_cb:
-                progress_cb(i, len(rows), f"Done {name} ({i}/{len(rows)})")
+                elapsed = time.time() - players_t0
+                per = elapsed / i
+                eta = per * (n_players - i)
+                _emit(
+                    i,
+                    n_players,
+                    f"Done {name} · {i}/{n_players} · ETA ~{_fmt_sec(eta)}",
+                    step="players",
+                    status="running",
+                    detail=(
+                        f"{i}/{n_players} done · ok {refreshed} · fail {len(failed)} · "
+                        f"avg {_fmt_sec(per)}/player"
+                    ),
+                )
             if i % 5 == 0:
                 conn.commit()
         conn.commit()
     finally:
         conn.close()
 
+    players_elapsed = round(time.time() - players_t0, 1)
+    _done(
+        "players",
+        f"{refreshed}/{n_players} refreshed · {len(failed)} failed · {_fmt_sec(players_elapsed)}",
+    )
+    if progress_cb:
+        progress_cb(
+            n_players,
+            n_players,
+            f"Finished · {refreshed} refreshed · {len(failed)} failed · {_fmt_sec(players_elapsed)}",
+            steps=steps,
+        )
+
     return {
         "ok": True,
-        "total": len(rows),
+        "total": n_players,
         "refreshed": refreshed,
         "failed_count": len(failed),
         "failed": failed[:20],
+        "ownership": ownership_sync
+        or {"ok": True, "owners_updated": owners_updated, "mode": "per_player"},
         "scraped_at": scraped_at,
+        "elapsed_sec": players_elapsed,
         "stats": totals,
     }
 

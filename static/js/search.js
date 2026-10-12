@@ -2,6 +2,15 @@
   const $ = (sel) => document.querySelector(sel);
   const alertEl = $("#alert");
   const DB_COLS = 18;
+  const LEAGUE_ID =
+    document.body?.dataset?.leagueId ||
+    document.querySelector("[data-league-id]")?.dataset?.leagueId ||
+    "49605";
+
+  function yahooPlayerSearchUrl(name) {
+    const q = encodeURIComponent(String(name || "").trim());
+    return `https://basketball.fantasysports.yahoo.com/nba/${LEAGUE_ID}/playersearch?search=${q}`;
+  }
   const SEARCH_COLS = 16;
 
   function showAlert(msg) {
@@ -209,7 +218,14 @@
   }
 
   function hideTakenEnabled() {
-    return Boolean($("#chkHideTaken")?.checked);
+    return Boolean($("#btnHideTaken")?.classList.contains("is-on"));
+  }
+
+  function setHideTaken(on) {
+    const btn = $("#btnHideTaken");
+    if (!btn) return;
+    btn.classList.toggle("is-on", !!on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
   }
 
   function playerIsTaken(p) {
@@ -240,9 +256,6 @@
 
   function visibleDbPlayers() {
     const filtered = filteredDbPlayers();
-    const q = getPlayerSearchQuery();
-    // While searching / filtering, show all matches (still cap at 500 for safety).
-    if (q || hasActivePosFilter() || hideTakenEnabled()) return filtered.slice(0, 500);
     const limit = getShowLimit();
     if (limit == null) return filtered;
     return filtered.slice(0, limit);
@@ -256,6 +269,7 @@
     const posOn = hasActivePosFilter();
     const body = $("#dbBody");
     const sub = $("#dbSub");
+    const limit = getShowLimit();
     if (!total) {
       sub.textContent = "0 players saved locally";
     } else if (q || posOn || hideTakenEnabled()) {
@@ -265,8 +279,12 @@
       if (selected.length) bits.push(selected.join("/"));
       if (multiPosOnly()) bits.push("multi-pos");
       if (hideTakenEnabled()) bits.push("hide taken");
-      sub.textContent = `${filtered.length} match${filtered.length === 1 ? "" : "es"} · ${bits.join(" · ")} · ${total} in DB`;
-    } else if (players.length < total) {
+      const shown =
+        players.length < filtered.length
+          ? `Showing ${players.length} of ${filtered.length} matches`
+          : `${filtered.length} match${filtered.length === 1 ? "" : "es"}`;
+      sub.textContent = `${shown} · ${bits.join(" · ")} · ${total} in DB`;
+    } else if (limit != null && players.length < total) {
       sub.textContent = `Showing ${players.length} of ${total} players`;
     } else {
       sub.textContent = `${total} player${total === 1 ? "" : "s"} saved locally`;
@@ -292,25 +310,43 @@
     body.innerHTML = players
       .map((p) => {
         const name = esc(p.full_name);
+        const ownerClass = p.fantasy_is_mine
+          ? "owner-mine"
+          : playerIsTaken(p)
+            ? "owner-taken"
+            : "owner-free";
+        const rowClass = p.fantasy_is_mine
+          ? "is-mine"
+          : playerIsTaken(p)
+            ? "is-taken"
+            : "is-free";
+        const yahooHref = yahooPlayerSearchUrl(p.full_name);
         return `
-          <tr class="clickable" data-db-id="${p.id}">
+          <tr class="clickable ${rowClass}" data-db-id="${p.id}">
             <td class="col-check">
               <input type="checkbox" class="row-check" value="${p.id}" aria-label="Select ${name}">
             </td>
             <td class="num">${p.yahoo_rank ?? "—"}</td>
             <td>
               <strong>${name}</strong>
-              <div class="subline">${esc(p.first_name)} ${esc(p.last_name)}</div>
             </td>
             <td>${esc(p.positions) || "—"}</td>
             <td>${esc(p.nba_team) || "—"}</td>
-            <td class="${p.fantasy_is_mine ? "owner-mine" : playerIsTaken(p) ? "owner-taken" : "owner-free"}">${esc(ownerLabel(p))}</td>
+            <td class="${ownerClass}"><span class="owner-pill">${esc(ownerLabel(p))}</span></td>
             <td class="num">${cell(p.owned_pct)}</td>
             ${statCells(p)}
             <td class="ta-end">
               <div class="row-actions">
                 <button type="button" class="btn tiny ghost fav-btn ${p.is_favourite ? "is-on" : ""}" data-fav="${p.id}" aria-pressed="${p.is_favourite ? "true" : "false"}" title="${p.is_favourite ? "Remove from watchlist" : "Add to watchlist"}">${p.is_favourite ? "★" : "☆"}</button>
-                <button type="button" class="btn tiny ghost" data-refresh="${p.id}" title="Refresh player data">Refresh</button>
+                <button type="button" class="btn tiny ghost row-icon-btn" data-refresh="${p.id}" title="Refresh player data" aria-label="Refresh player data">
+                  <svg class="icon-refresh" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                    <path d="M3 3v5h5"></path>
+                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                    <path d="M16 16h5v5"></path>
+                  </svg>
+                </button>
+                <a class="btn tiny ghost yahoo-row-btn" href="${esc(yahooHref)}" target="_blank" rel="noopener noreferrer" title="Open on Yahoo" aria-label="Open on Yahoo"><img class="icon-yahoo" src="https://s.yimg.com/cv/apiv2/sports/logo/app-icon-60x60.jpg" alt="" width="13" height="13" decoding="async"></a>
               </div>
             </td>
           </tr>`;
@@ -319,7 +355,7 @@
 
     body.querySelectorAll("tr[data-db-id]").forEach((tr) => {
       tr.addEventListener("click", (e) => {
-        if (e.target.closest("input, button, .row-actions, .col-check")) return;
+        if (e.target.closest("input, button, a, .row-actions, .col-check")) return;
         openDetail(Number(tr.dataset.dbId));
       });
     });
@@ -444,6 +480,109 @@
 
   let activeJobId = null;
   let hideControlsJobId = null;
+  let jobTimerInterval = null;
+  let jobTimerStartedAt = 0;
+  let jobTimerPausedAccum = 0;
+  let jobTimerPauseStarted = null;
+
+  function formatElapsed(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, "0")}`;
+  }
+
+  function updateJobTimerDisplay(sec) {
+    const el = $("#jobBarTimer");
+    if (el) el.textContent = formatElapsed(sec);
+  }
+
+  function stopJobTimer() {
+    if (jobTimerInterval) {
+      clearInterval(jobTimerInterval);
+      jobTimerInterval = null;
+    }
+    jobTimerPauseStarted = null;
+  }
+
+  function startJobTimer(startedAt, elapsedSec) {
+    stopJobTimer();
+    jobTimerStartedAt =
+      typeof startedAt === "number" && Number.isFinite(startedAt)
+        ? startedAt
+        : Date.now() / 1000;
+    if (elapsedSec != null && Number.isFinite(Number(elapsedSec))) {
+      jobTimerPausedAccum = Date.now() / 1000 - jobTimerStartedAt - Number(elapsedSec);
+    } else {
+      jobTimerPausedAccum = 0;
+    }
+    const tick = () => {
+      const now = Date.now() / 1000;
+      let paused = jobTimerPausedAccum;
+      if (jobTimerPauseStarted != null) paused += now - jobTimerPauseStarted;
+      updateJobTimerDisplay(now - jobTimerStartedAt - paused);
+    };
+    tick();
+    jobTimerInterval = setInterval(tick, 250);
+  }
+
+  function formatStepTime(sec) {
+    if (sec == null || !Number.isFinite(Number(sec))) return "";
+    const s = Math.max(0, Math.round(Number(sec)));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, "0")}`;
+  }
+
+  function renderJobSteps(steps) {
+    const root = $("#jobSteps");
+    if (!root) return;
+    if (!steps?.length) {
+      root.hidden = true;
+      root.innerHTML = "";
+      return;
+    }
+    root.hidden = false;
+    root.innerHTML = steps
+      .map((s) => {
+        const status = s.status || "pending";
+        const mark =
+          status === "done"
+            ? "✓"
+            : status === "running"
+              ? "●"
+              : status === "error"
+                ? "!"
+                : status === "cancelled"
+                  ? "✕"
+                  : status === "skipped"
+                    ? "–"
+                    : "○";
+        const detail = s.detail
+          ? `<div class="job-step-detail">${esc(s.detail)}</div>`
+          : "";
+        let timeLabel = "";
+        if (status === "done" && s.elapsed_sec != null) {
+          timeLabel = formatStepTime(s.elapsed_sec);
+        } else if (status === "running" && s.elapsed_sec != null) {
+          timeLabel = formatStepTime(s.elapsed_sec);
+        }
+        const timeHtml = timeLabel
+          ? `<span class="job-step-time">${esc(timeLabel)}</span>`
+          : "";
+        return `<li class="job-step is-${status}">
+          <span class="job-step-mark" aria-hidden="true">${mark}</span>
+          <span class="job-step-body">
+            <span class="job-step-main">
+              <span>${esc(s.label || s.key)}</span>
+              ${timeHtml}
+            </span>
+            ${detail}
+          </span>
+        </li>`;
+      })
+      .join("");
+  }
 
   function setJobControls({ pauseResume, showStop, stopping }) {
     const toggleBtn = $("#btnPauseResume");
@@ -521,13 +660,27 @@
     if (label) label.textContent = job.label || "Yahoo job";
     const total = Number(job.total || 0);
     const progress = Number(job.progress || 0);
+    const steps = job.steps || [];
     if (meta) {
       meta.textContent =
-        total > 0 ? `${progress}/${total}` : job.status || "running";
+        total > 0
+          ? `${progress}/${total}`
+          : steps.length
+            ? `${Math.min(progress + 1, steps.length)}/${steps.length}`
+            : job.status || "running";
     }
     if (text) text.textContent = job.message || "Working…";
     if (fill) {
-      const pct = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 8;
+      const pct = total
+        ? Math.min(100, Math.round((progress / total) * 100))
+        : steps.length
+          ? Math.min(
+              100,
+              Math.round(
+                ((progress + (job.status === "done" ? 0 : 0.35)) / steps.length) * 100
+              )
+            )
+          : 8;
       fill.style.width = `${pct}%`;
     }
     const terminal =
@@ -543,13 +696,28 @@
         job.status === "paused");
     const paused = !!job.paused || job.status === "paused";
     $("#jobBar")?.classList.toggle("is-paused", paused);
-    if (active && paused) {
-      setJobControls({ pauseResume: "resume", showStop: true, stopping: false });
-    } else if (active) {
-      setJobControls({ pauseResume: "pause", showStop: true, stopping: false });
+    if (active) {
+      if (!jobTimerInterval) startJobTimer(job.started_at, job.elapsed_sec);
+      else if (job.elapsed_sec != null) updateJobTimerDisplay(job.elapsed_sec);
+      if (paused) {
+        if (jobTimerPauseStarted == null) jobTimerPauseStarted = Date.now() / 1000;
+      } else if (jobTimerPauseStarted != null) {
+        jobTimerPausedAccum += Date.now() / 1000 - jobTimerPauseStarted;
+        jobTimerPauseStarted = null;
+      }
+      if (paused) {
+        setJobControls({ pauseResume: "resume", showStop: true, stopping: false });
+      } else {
+        setJobControls({ pauseResume: "pause", showStop: true, stopping: false });
+      }
     } else {
+      if (job.elapsed_sec != null) {
+        stopJobTimer();
+        updateJobTimerDisplay(job.elapsed_sec);
+      }
       setJobControls({ pauseResume: null, showStop: false, stopping: false });
     }
+    renderJobSteps(steps);
   }
 
   function hideJobBarSoon() {
@@ -559,16 +727,28 @@
     bar.classList.remove("is-paused");
     setTimeout(() => {
       if (!scrapeJobRunning) {
+        stopJobTimer();
         bar.hidden = true;
         activeJobId = null;
+        const steps = $("#jobSteps");
+        if (steps) {
+          steps.hidden = true;
+          steps.innerHTML = "";
+        }
       }
-    }, 4000);
+    }, 5000);
   }
 
   function setBtnBusy(btn, on, idleLabel, busyLabel) {
     if (!btn) return;
     if (btn.querySelector && btn.querySelector(".btn-label")) {
       setBusy(btn, on, idleLabel, busyLabel);
+      return;
+    }
+    // Icon-only row buttons — don't wipe the SVG.
+    if (btn.querySelector && btn.querySelector(".icon-refresh")) {
+      btn.disabled = on;
+      btn.classList.toggle("is-busy", on);
       return;
     }
     btn.disabled = on;
@@ -688,7 +868,7 @@
 
   async function bulkAddPlayers(limit, btn) {
     const all = limit === "all" || limit === "*" || limit == null;
-    const idle = btn.querySelector(".btn-label")?.textContent || "Add auto player";
+    const idle = btn.querySelector(".btn-label")?.textContent || "Add Batch";
     await runBackgroundJob({
       url: "/api/bulk-add-players",
       body: all ? { limit: "all", all: true } : { limit },
@@ -705,19 +885,33 @@
     });
   }
 
+  function summarizePlayerRefresh(result, kindLabel) {
+    const fail = result.failed_count ?? 0;
+    const own = result.ownership || {};
+    const ownBit =
+      own.owners != null
+        ? ` · ${own.owners} owners`
+        : own.owners_updated != null
+          ? ` · ${own.owners_updated} owners`
+          : "";
+    const timeBit =
+      result.elapsed_sec != null ? ` · ${formatElapsed(result.elapsed_sec)}` : "";
+    return (
+      `Refreshed ${result.refreshed ?? 0}/${result.total ?? 0} ${kindLabel}` +
+      (fail ? ` · ${fail} failed` : "") +
+      ownBit +
+      timeBit +
+      "."
+    );
+  }
+
   async function refreshAllPlayers(btn) {
     await runBackgroundJob({
       url: "/api/refresh-all-players",
       btn,
       idleLabel: "Refresh all",
       busyLabel: "Refreshing…",
-      summarize: (result) => {
-        const fail = result.failed_count ?? 0;
-        return (
-          `Refreshed ${result.refreshed ?? 0}/${result.total ?? 0} players` +
-          (fail ? ` (${fail} failed).` : ".")
-        );
-      },
+      summarize: (result) => summarizePlayerRefresh(result, "players"),
     });
   }
 
@@ -734,13 +928,7 @@
       btn,
       idleLabel: idle,
       busyLabel: `Refreshing ${ids.length}…`,
-      summarize: (result) => {
-        const fail = result.failed_count ?? 0;
-        return (
-          `Refreshed ${result.refreshed ?? 0}/${result.total ?? 0} selected` +
-          (fail ? ` (${fail} failed).` : ".")
-        );
-      },
+      summarize: (result) => summarizePlayerRefresh(result, "selected"),
     });
   }
 
@@ -931,25 +1119,23 @@
     if (q.length >= 2) runSearch(q);
   });
 
-  $("#btnRefreshDb").addEventListener("click", loadDbPlayers);
   const dbShowLimit = $("#dbShowLimit");
   if (dbShowLimit) {
-    const saved = localStorage.getItem(SHOW_LIMIT_KEY);
-    if (saved && [...dbShowLimit.options].some((o) => o.value === saved)) {
-      dbShowLimit.value = saved;
-    } else {
-      dbShowLimit.value = "20";
-    }
+    // Always open on 20 (ignore stale localStorage like "all").
+    dbShowLimit.value = "20";
+    localStorage.setItem(SHOW_LIMIT_KEY, "20");
     dbShowLimit.addEventListener("change", () => {
       localStorage.setItem(SHOW_LIMIT_KEY, dbShowLimit.value);
       renderDbPlayers();
     });
   }
-  const chkHideTaken = $("#chkHideTaken");
-  if (chkHideTaken) {
-    chkHideTaken.checked = localStorage.getItem(HIDE_TAKEN_KEY) === "1";
-    chkHideTaken.addEventListener("change", () => {
-      localStorage.setItem(HIDE_TAKEN_KEY, chkHideTaken.checked ? "1" : "0");
+  const btnHideTaken = $("#btnHideTaken");
+  if (btnHideTaken) {
+    setHideTaken(localStorage.getItem(HIDE_TAKEN_KEY) === "1");
+    btnHideTaken.addEventListener("click", () => {
+      const on = !hideTakenEnabled();
+      setHideTaken(on);
+      localStorage.setItem(HIDE_TAKEN_KEY, on ? "1" : "0");
       renderDbPlayers();
     });
   }

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=53">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -16,13 +16,10 @@
       <div class="brand">
         <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
         <h1>Roster</h1>
-        <p class="sub">Your fantasy lineup by slot — stats and news for your players only.</p>
+        <p class="sub">Lineup depth, tonight’s slate, and category contribution.</p>
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" class="btn primary" id="btnRefreshRoster">
-          <span class="btn-label">Refresh</span>
-        </button>
         {% include "partials/header_tools.html" %}
       </div>
     </header>
@@ -36,6 +33,11 @@
             <h2 id="rosterTeamName">My Team</h2>
             <p class="panel-sub" id="rosterSub">Loading…</p>
           </div>
+          <div class="actions">
+            <button type="button" class="btn primary tiny" id="btnRefreshRoster">
+              <span class="btn-label">Refresh</span>
+            </button>
+          </div>
         </div>
         <div class="table-wrap">
           <table class="players-table wide-stats roster-detail-table">
@@ -43,6 +45,7 @@
               <tr>
                 <th class="pos-col">Pos</th>
                 <th>Player</th>
+                <th>Lockout</th>
                 <th class="num">Rank</th>
                 <th class="num">Owned</th>
                 <th class="num">GP</th>
@@ -61,6 +64,42 @@
             <tbody id="rosterBody"></tbody>
           </table>
         </div>
+      </section>
+
+      <section class="panel roster-avail-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Bench lockouts</h2>
+            <p class="panel-sub" id="availSub">Matchup weeks (Mon–Sun; All-Star week is longer)</p>
+          </div>
+          <div class="roster-week-nav" id="lockoutWeekNav">
+            <button type="button" class="btn ghost tiny" id="btnLockoutPrev" title="Previous week">←</button>
+            <button type="button" class="btn ghost tiny" id="btnLockoutNow" title="Current week">Now</button>
+            <button type="button" class="btn ghost tiny" id="btnLockoutNext" title="Next week">→</button>
+          </div>
+        </div>
+        <div class="roster-lockout-week" id="lockoutWeek" aria-live="polite"></div>
+      </section>
+
+      <section class="panel roster-coverage-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Position coverage</h2>
+            <p class="panel-sub">Eligible players per fantasy slot · Active / Bench / IL</p>
+          </div>
+        </div>
+        <div class="roster-coverage-grid" id="coverageGrid"></div>
+      </section>
+
+      <section class="panel roster-contrib-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Category contribution</h2>
+            <p class="panel-sub" id="contribSub">Active lineup vs league pool</p>
+          </div>
+          <a class="btn ghost tiny" href="/analytics">Full analytics</a>
+        </div>
+        <div class="roster-strength-chips" id="strengthChips"></div>
       </section>
 
       <section class="panel" id="rosterNewsPanel">
@@ -85,6 +124,6 @@
   {% include "partials/player_detail_modals.html" %}
 
   <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
-  <script src="{{ url_for('static', filename='js/roster.js') }}?v=1"></script>
+  <script src="{{ url_for('static', filename='js/roster.js') }}?v=6"></script>
 </body>
 </html>

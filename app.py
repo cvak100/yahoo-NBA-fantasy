@@ -241,7 +241,19 @@ def api_dashboard():
 def api_roster():
     from roster_view import load_my_roster_page
 
-    return jsonify(load_my_roster_page())
+    week = request.args.get("week", type=int)
+    return jsonify(load_my_roster_page(week=week))
+
+
+@app.get("/api/roster/lockouts")
+def api_roster_lockouts():
+    from roster_view import load_lockouts
+
+    week = request.args.get("week", type=int)
+    try:
+        return jsonify(load_lockouts(week=week))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @app.get("/api/analytics")
@@ -770,6 +782,23 @@ def _bulk_add_from_request():
 @app.post("/api/db/players/bulk-add")
 def api_db_players_bulk_add():
     return _bulk_add_from_request()
+
+
+@app.post("/api/db/ownership/refresh")
+def api_db_ownership_refresh():
+    """Re-scrape Yahoo player Status → fantasy_owner (Players Owner column)."""
+
+    def run(progress):
+        from chrome_browser import attach_chrome
+        from fantasy_ownership import sync_ownership_from_yahoo_list
+
+        progress(0, 1, "Attaching Chrome…")
+        driver = attach_chrome()
+        return sync_ownership_from_yahoo_list(driver, limit=900, progress_cb=progress)
+
+    return jsonify(
+        start_job(kind="ownership_refresh", label="Update fantasy owners", fn=run)
+    )
 
 
 @app.post("/api/refresh-all-players")

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=53">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -20,10 +20,6 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" class="btn ghost" id="btnRefreshScoutingPage">Reload</button>
-        <button type="button" class="btn primary" id="btnScrapeOpponent">
-          <span class="btn-label">Refresh</span>
-        </button>
         {% include "partials/header_tools.html" %}
       </div>
     </header>
@@ -37,10 +33,16 @@
             <h2>Opponent</h2>
             <p class="panel-sub" id="scoutingSub">Loading…</p>
           </div>
-          <label class="show-limit" for="opponentSelect">
-            <span>Team</span>
-            <select id="opponentSelect" aria-label="Fantasy opponent"></select>
-          </label>
+          <div class="actions">
+            <label class="show-limit" for="opponentSelect">
+              <span>Team</span>
+              <select id="opponentSelect" aria-label="Fantasy opponent"></select>
+            </label>
+            <button type="button" class="btn ghost tiny" id="btnRefreshScoutingPage">Reload</button>
+            <button type="button" class="btn primary tiny" id="btnScrapeOpponent">
+              <span class="btn-label">Refresh</span>
+            </button>
+          </div>
         </div>
         <div class="edge-strip" id="edgeStrip"></div>
         <div class="table-wrap">

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=53">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -20,10 +20,6 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" class="btn danger" id="btnClearWatchlist" title="Remove all favourites">Clear</button>
-        <button type="button" class="btn primary" id="btnRefreshWatchlist">
-          <span class="btn-label">Refresh</span>
-        </button>
         {% include "partials/header_tools.html" %}
       </div>
     </header>
@@ -31,7 +27,15 @@
     <div id="alert" class="alert" hidden></div>
 
     <main class="watchlist-layout">
-      <p class="panel-sub" id="watchSub">Loading…</p>
+      <div class="panel-head page-section-head">
+        <p class="panel-sub" id="watchSub">Loading…</p>
+        <div class="actions">
+          <button type="button" class="btn danger tiny" id="btnClearWatchlist" title="Remove all favourites">Clear</button>
+          <button type="button" class="btn primary tiny" id="btnRefreshWatchlist">
+            <span class="btn-label">Refresh</span>
+          </button>
+        </div>
+      </div>
       <div id="watchGroups" class="watch-groups"></div>
     </main>
   </div>

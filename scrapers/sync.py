@@ -66,7 +66,13 @@ def _matchup_involves(row: dict[str, Any], team_id: str | None) -> bool:
 
 
 def apply_my_team_selection(*, persist: bool = True) -> dict[str, Any]:
-    """Re-label local dashboard JSON for Settings → My team (no scrape)."""
+    """Re-label local dashboard JSON for Settings → My team (no scrape).
+
+    Roster + full schedule are cached per fantasy team_id so switching away
+    and back restores the last Refresh for that team.
+    """
+    from team_snapshots import load_team_snapshot, save_team_snapshot
+
     rules = load_json(config.RULES_PATH, {}) or {}
     standings = load_json(config.STANDINGS_PATH, {}) or {}
     my_team = load_json(config.MY_TEAM_PATH, {}) or {}
@@ -84,40 +90,60 @@ def apply_my_team_selection(*, persist: bool = True) -> dict[str, Any]:
                     break
     resolved = resolve_my_team_id(str(detected) if detected else None)
     team_id = str(resolved) if resolved else None
+    old_team_id = str(my_team.get("team_id") or "").strip() or None
+    same_team = bool(team_id) and str(old_team_id or "") == str(team_id)
+
+    # Stash active team before we mutate files (so switch-away keeps last Refresh).
+    if persist and old_team_id:
+        save_team_snapshot(old_team_id, my_team=my_team, matchups=matchups)
 
     row = _team_from_standings(standings, team_id)
     for r in standings.get("rows") or []:
         r["is_mine"] = bool(team_id) and str(r.get("team_id")) == str(team_id)
 
-    # Rebuild My Team card from standings + existing roster slots.
-    slots = my_team.get("slots")
-    if not slots:
-        slots = []
-        for slot in rules.get("roster_positions") or []:
-            slots.append({**slot, "player": None})
-    # Keep players only if same team; otherwise clear filled roster display.
-    same_team = str(my_team.get("team_id") or "") == str(team_id or "")
-    if not same_team:
-        slots = [{**s, "player": None} for s in slots]
-    filled = sum(1 for s in slots if s.get("player")) if same_team else 0
+    snap = load_team_snapshot(team_id) if team_id and not same_team else None
+    if same_team:
+        snap = None  # keep live files; still refresh logos below
 
+    # Rebuild My Team card from standings + live slots or cached snapshot.
+    def _empty_slots() -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for slot in rules.get("roster_positions") or []:
+            out.append({**slot, "player": None})
+        return out
+
+    if same_team:
+        slots = list(my_team.get("slots") or []) or _empty_slots()
+        base_team = my_team
+    elif snap and isinstance(snap.get("my_team"), dict):
+        base_team = dict(snap.get("my_team") or {})
+        slots = list(base_team.get("slots") or []) or _empty_slots()
+    else:
+        base_team = {}
+        slots = _empty_slots()
+
+    filled = sum(1 for s in slots if s.get("player"))
     new_my_team = {
-        **my_team,
+        **base_team,
         "team_id": team_id or row.get("team_id"),
-        "name": row.get("name") or my_team.get("name"),
-        "manager": row.get("manager") or my_team.get("manager"),
-        "logo": row.get("logo") or my_team.get("logo"),
+        "name": row.get("name") or base_team.get("name") or my_team.get("name"),
+        "manager": row.get("manager") or base_team.get("manager") or my_team.get("manager"),
+        "logo": row.get("logo") or base_team.get("logo") or my_team.get("logo"),
         "url": row.get("url")
-        or (f"{config.LEAGUE_URL}/{team_id}" if team_id else my_team.get("url")),
+        or (f"{config.LEAGUE_URL}/{team_id}" if team_id else base_team.get("url") or my_team.get("url")),
         "slots": slots,
         "filled": filled,
-        "capacity": len(slots) or my_team.get("capacity"),
+        "capacity": len(slots) or base_team.get("capacity") or my_team.get("capacity"),
     }
-    if not same_team:
+    if filled:
+        new_my_team.pop("note", None)
+    elif not same_team and not snap:
         new_my_team["note"] = (
             "Team switched in Settings. Run Refresh for this team's "
             "roster details and full season matchups."
         )
+    elif base_team.get("note"):
+        new_my_team["note"] = base_team.get("note")
 
     # League matchups: mark mine for selected team.
     rows = [dict(m) for m in (matchups.get("matchups") or [])]
@@ -127,18 +153,25 @@ def apply_my_team_selection(*, persist: bool = True) -> dict[str, Any]:
         if m["is_mine"] and mine_row is None:
             mine_row = m
 
-    league_week = matchups.get("week")
-    schedule_team = matchups.get("my_schedule_team_id")
-    schedule = list(matchups.get("my_schedule") or [])
-    if schedule and str(schedule_team or "") != str(team_id or ""):
-        # Entire schedule belongs to another fantasy team.
-        schedule = []
-    else:
-        # Drop leftover weeks that do not involve the selected team
-        # (e.g. week 1 still showing the previous "mine" pairing).
-        schedule = [s for s in schedule if _matchup_involves(s, team_id)]
+    league_week = matchups.get("week") or (snap or {}).get("week")
 
-    my_matchup = matchups.get("my_matchup") or {}
+    if same_team:
+        schedule = list(matchups.get("my_schedule") or [])
+        schedule = [s for s in schedule if _matchup_involves(s, team_id)]
+        my_matchup = matchups.get("my_matchup") or {}
+    elif snap:
+        schedule = [
+            s
+            for s in list(snap.get("my_schedule") or [])
+            if _matchup_involves(s, team_id)
+        ]
+        my_matchup = dict(snap.get("my_matchup") or {})
+        if my_matchup and not _matchup_involves(my_matchup, team_id):
+            my_matchup = {}
+    else:
+        schedule = []
+        my_matchup = {}
+
     if mine_row:
         home = dict(mine_row.get("home") or {})
         away = dict(mine_row.get("away") or {})
@@ -192,7 +225,6 @@ def apply_my_team_selection(*, persist: bool = True) -> dict[str, Any]:
         replaced = False
         for i, s in enumerate(schedule):
             if cur_week is not None and int(s.get("week") or -1) == int(cur_week):
-                # Keep richer categories from schedule if same pairing.
                 old_pair = {
                     str((s.get("home") or {}).get("team_id") or ""),
                     str((s.get("away") or {}).get("team_id") or ""),
@@ -240,6 +272,8 @@ def apply_my_team_selection(*, persist: bool = True) -> dict[str, Any]:
         save_json(config.MY_TEAM_PATH, new_my_team)
         save_json(config.MATCHUPS_PATH, new_matchups)
         save_json(config.META_PATH, new_meta)
+        if team_id:
+            save_team_snapshot(team_id, my_team=new_my_team, matchups=new_matchups)
 
     from roster_view import enrich_my_team_db_ids
 
@@ -293,9 +327,21 @@ def sync_all() -> dict[str, Any]:
         **league["standings"],
         "teams_count": len(league.get("teams") or []),
     }
+    prev_team = load_json(config.MY_TEAM_PATH, {}) or {}
+    built = build_my_team_payload(league, settings, my_team_id=my_team_id)
+    # Keep last roster when league sync is for the same fantasy team.
+    if (
+        str(prev_team.get("team_id") or "") == str(my_team_id or "")
+        and any((s.get("player") for s in (prev_team.get("slots") or [])))
+    ):
+        built["slots"] = prev_team.get("slots") or built.get("slots")
+        built["filled"] = sum(
+            1 for s in (built.get("slots") or []) if s.get("player")
+        )
+        built.pop("note", None)
     my_team = {
         "synced_at": synced_at,
-        **build_my_team_payload(league, settings, my_team_id=my_team_id),
+        **built,
     }
     matchups = {
         "synced_at": synced_at,
@@ -319,6 +365,12 @@ def sync_all() -> dict[str, Any]:
     save_json(config.MY_TEAM_PATH, my_team)
     save_json(config.MATCHUPS_PATH, matchups)
     save_json(config.META_PATH, meta)
+    try:
+        from team_snapshots import save_team_snapshot
+
+        save_team_snapshot(my_team_id, my_team=my_team, matchups=matchups)
+    except Exception:
+        pass
 
     return {
         "ok": True,

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=51">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=61">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -20,10 +20,6 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" id="btnSync" class="btn primary" title="League + roster + available players + news, injuries, trends">
-          <span class="btn-label">Refresh</span>
-          <span class="btn-spinner" hidden></span>
-        </button>
         {% include "partials/header_tools.html" %}
       </div>
     </header>
@@ -48,39 +44,45 @@
     </div>
 
     <main class="layout">
-      <section class="panel team-panel">
+      <section class="panel matchup-panel">
         <div class="panel-head">
           <div>
-            <h2>My Team</h2>
-            <p class="panel-sub" id="teamSub">—</p>
+            <h2>Matchup</h2>
+            <p class="panel-sub" id="matchupSub">—</p>
           </div>
-          <div class="team-badge" id="teamBadge">
-            <img id="teamLogo" alt="" hidden>
-            <span id="teamInitials">CV</span>
+          <div class="actions">
+            <button type="button" id="btnSync" class="btn primary tiny" title="League + roster + available players + news, injuries, trends">
+              <span class="btn-label">Refresh</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
           </div>
         </div>
-        <div class="roster-meta" id="rosterMeta"></div>
-        <div class="roster" id="roster"></div>
+        <div class="matchup-nav" id="matchupNav" hidden>
+          <button type="button" class="btn ghost tiny" id="btnMatchupPrev" aria-label="Previous matchup">←</button>
+          <span class="matchup-nav-label" id="matchupNavLabel">Week —</span>
+          <button type="button" class="btn ghost tiny" id="btnMatchupNext" aria-label="Next matchup">→</button>
+          <button type="button" class="btn ghost tiny" id="btnMatchupAll">All</button>
+        </div>
+        <div class="my-matchup" id="myMatchup"></div>
+        <div class="cat-grid" id="catGrid"></div>
+        <h3 class="section-label">League matchups</h3>
+        <div class="matchup-list" id="matchupList"></div>
       </section>
 
-      <aside class="right-col">
-        <section class="panel matchup-panel">
+      <div class="dashboard-split">
+        <section class="panel team-panel">
           <div class="panel-head">
             <div>
-              <h2>Matchup</h2>
-              <p class="panel-sub" id="matchupSub">—</p>
+              <h2>My Team</h2>
+              <p class="panel-sub" id="teamSub">—</p>
+            </div>
+            <div class="team-badge" id="teamBadge">
+              <img id="teamLogo" alt="" hidden>
+              <span id="teamInitials">CV</span>
             </div>
           </div>
-          <div class="matchup-nav" id="matchupNav" hidden>
-            <button type="button" class="btn ghost tiny" id="btnMatchupPrev" aria-label="Previous matchup">←</button>
-            <span class="matchup-nav-label" id="matchupNavLabel">Week —</span>
-            <button type="button" class="btn ghost tiny" id="btnMatchupNext" aria-label="Next matchup">→</button>
-            <button type="button" class="btn ghost tiny" id="btnMatchupAll">All</button>
-          </div>
-          <div class="my-matchup" id="myMatchup"></div>
-          <div class="cat-grid" id="catGrid"></div>
-          <h3 class="section-label">League matchups</h3>
-          <div class="matchup-list" id="matchupList"></div>
+          <div class="roster-meta" id="rosterMeta"></div>
+          <div class="roster" id="roster"></div>
         </section>
 
         <section class="panel standings-panel">
@@ -104,7 +106,7 @@
             </table>
           </div>
         </section>
-      </aside>
+      </div>
 
       <section class="panel rules-panel">
         <div class="panel-head">
@@ -138,6 +140,6 @@
   {% include "partials/player_detail_modals.html" %}
 
   <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=34"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=36"></script>
 </body>
 </html>

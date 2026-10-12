@@ -384,7 +384,7 @@ def apply_roster_to_my_team(roster_rows: list[dict[str, Any]], *, team_id: str |
     save_json(config.MY_TEAM_PATH, my_team)
     # Persist ownership so Players → Owner / Hide taken stay accurate.
     try:
-        from db import set_fantasy_owners
+        from db import clear_stale_you_owners, set_fantasy_owners
 
         owners = {}
         for s in slots:
@@ -394,6 +394,16 @@ def apply_roster_to_my_team(roster_rows: list[dict[str, Any]], *, team_id: str |
                 owners[yid] = "You"
         if owners:
             set_fantasy_owners(owners)
+            clear_stale_you_owners(set(owners.keys()))
+        else:
+            clear_stale_you_owners(set())
+    except Exception:
+        pass
+    try:
+        from team_snapshots import save_team_snapshot
+
+        matchups = load_json(config.MATCHUPS_PATH, {}) or {}
+        save_team_snapshot(my_team.get("team_id"), my_team=my_team, matchups=matchups)
     except Exception:
         pass
     return my_team

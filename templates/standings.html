@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=39">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=53">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -20,10 +20,6 @@
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
-        <button type="button" class="btn primary" id="btnRefreshStandings" title="Scrape Yahoo standings detail">
-          <span class="btn-label">Refresh</span>
-          <span class="btn-spinner" hidden></span>
-        </button>
         {% include "partials/header_tools.html" %}
       </div>
     </header>
@@ -55,6 +51,10 @@
           <div class="actions standings-view-toggle" role="group" aria-label="Stats view">
             <button type="button" class="btn ghost tiny is-on" id="btnViewTotal" data-view="total">Total</button>
             <button type="button" class="btn ghost tiny" id="btnViewAvg" data-view="avg">Avg</button>
+            <button type="button" class="btn primary tiny" id="btnRefreshStandings" title="Scrape Yahoo standings detail">
+              <span class="btn-label">Refresh</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
           </div>
         </div>
         <div class="table-wrap standings-detail-wrap">
