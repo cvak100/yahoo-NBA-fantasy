@@ -48,6 +48,7 @@ META_PATH = DATA_DIR / "meta.json"
 APP_SETTINGS_PATH = DATA_DIR / "app_settings.json"
 REFRESH_TIMINGS_PATH = DATA_DIR / "refresh_timings.json"
 FREE_PLAYERS_PATH = DATA_DIR / "free_players.json"
+CAT_HISTORY_PATH = DATA_DIR / "cat_history.json"
 DB_PATH = DATA_DIR / "players.db"
 
 # Daily / main refresh defaults

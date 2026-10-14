@@ -19,6 +19,16 @@ from store import load_json
 TOP_N = 5
 
 
+def _analytics_top_n() -> int:
+    try:
+        from app_settings import load_app_settings
+
+        n = int(load_app_settings().get("analytics_top_n") or TOP_N)
+    except Exception:
+        n = TOP_N
+    return max(3, min(n, 15))
+
+
 def _roster_players() -> list[dict[str, Any]]:
     my_team = load_json(config.MY_TEAM_PATH, {}) or {}
     out: list[dict[str, Any]] = []
@@ -168,6 +178,7 @@ def load_analytics() -> dict[str, Any]:
     my_team = load_json(config.MY_TEAM_PATH, {}) or {}
     my_yahoo_ids = {str(p.get("yahoo_id")) for p in roster if p.get("yahoo_id")}
     baselines = _cat_baselines(pool)
+    top_n = _analytics_top_n()
 
     columns: list[dict[str, Any]] = []
     strength: list[dict[str, Any]] = []
@@ -188,7 +199,7 @@ def load_analytics() -> dict[str, Any]:
             field=field,
             kind=kind,
             lower_better=lower,
-            limit=TOP_N,
+            limit=top_n,
             include_slot=True,
         )
         league_top = _rank_players(
@@ -196,7 +207,7 @@ def load_analytics() -> dict[str, Any]:
             field=field,
             kind=kind,
             lower_better=lower,
-            limit=TOP_N,
+            limit=top_n,
             include_slot=False,
         )
         for row in league_top:
@@ -233,8 +244,8 @@ def load_analytics() -> dict[str, Any]:
         )
 
     # Overall MVP column (z-score average across all 9 cats vs league pool).
-    my_mvp = _rank_mvp(roster, baselines, limit=TOP_N, include_slot=True)
-    league_mvp = _rank_mvp(pool, baselines, limit=TOP_N, include_slot=False)
+    my_mvp = _rank_mvp(roster, baselines, limit=top_n, include_slot=True)
+    league_mvp = _rank_mvp(pool, baselines, limit=top_n, include_slot=False)
     for row in league_mvp:
         row["on_my_roster"] = str(row.get("yahoo_id") or "") in my_yahoo_ids
 
@@ -294,7 +305,7 @@ def load_analytics() -> dict[str, Any]:
             "player_count": len(roster),
         },
         "pool_count": len(pool),
-        "top_n": TOP_N,
+        "top_n": top_n,
         "summary": {
             "strong": strong,
             "average": sum(1 for s in strength if s["strength"] == "average"),

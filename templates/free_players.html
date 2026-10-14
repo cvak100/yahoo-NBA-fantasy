@@ -16,7 +16,7 @@
       <div class="brand">
         <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
         <h1>Free Players</h1>
-        <p class="sub">Top 100 available → best 10 by L7/L14 stats, Research Adds, and L7 ranks.</p>
+        <p class="sub">Top free agents by L7/L14, plus NBA starters who are still FA/W.</p>
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
@@ -82,12 +82,56 @@
           </table>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Available NBA starters</h2>
+            <p class="panel-sub" id="startersSub">Loading…</p>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn ghost tiny" id="btnReloadStarters" title="Reload cached CBS depth">
+              <span class="btn-label">Reload</span>
+            </button>
+            <button type="button" class="btn primary tiny" id="btnRefreshStarters" title="Scrape CBS Sports depth charts">
+              <span class="btn-label">Refresh CBS</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
+          </div>
+        </div>
+        <p class="free-score-note" id="startersNote" hidden></p>
+        <div class="table-wrap">
+          <table class="players-table free-players-table sortable-table" id="startersTable">
+            <thead>
+              <tr>
+                <th class="num">#</th>
+                <th>Player</th>
+                <th>Team</th>
+                <th>Starter</th>
+                <th>Pos</th>
+                <th class="num">Rank</th>
+                <th class="num">Owned%</th>
+                <th class="num">PTS</th>
+                <th class="num">REB</th>
+                <th class="num">AST</th>
+                <th class="num">STL</th>
+                <th class="num">BLK</th>
+                <th class="num">3PM</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="startersBody">
+              <tr><td colspan="14" class="muted">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
   </div>
 
   {% include "partials/player_detail_modals.html" %}
 
-  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=16"></script>
-  <script src="{{ url_for('static', filename='js/free-players.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=17"></script>
+  <script src="{{ url_for('static', filename='js/free-players.js') }}?v=6"></script>
 </body>
 </html>

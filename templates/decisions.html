@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decisions · Yahoo Fantasy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=63">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Decisions</h1>
+        <p class="sub">Weak cats → stream FA → keep or cut BN/IL. Season deficit tracker with charts.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        {% include "partials/header_tools.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+
+    <main class="decisions-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Weak categories</h2>
+            <p class="panel-sub" id="weakSub">Loading…</p>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn primary tiny" id="btnRefreshDecisions">
+              <span class="btn-label">Refresh</span>
+            </button>
+          </div>
+        </div>
+        <div class="weak-chips" id="weakChips"></div>
+      </section>
+
+      <div class="decisions-split">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Streaming targets</h2>
+              <p class="panel-sub" id="streamSub">FA / waivers · games left × weak cats</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="players-table">
+              <thead>
+                <tr>
+                  <th class="num">#</th>
+                  <th>Player</th>
+                  <th class="num">Games</th>
+                  <th>Fills</th>
+                  <th>Why</th>
+                </tr>
+              </thead>
+              <tbody id="streamBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Keep or cut</h2>
+              <p class="panel-sub" id="keepCutSub">Bench + IL only · labels with reasons</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="players-table">
+              <thead>
+                <tr>
+                  <th>Verdict</th>
+                  <th>Player</th>
+                  <th>Slot</th>
+                  <th class="num">Rank</th>
+                  <th>Reasons</th>
+                </tr>
+              </thead>
+              <tbody id="keepCutBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Category deficit tracker</h2>
+            <p class="panel-sub" id="deficitSub">Season W–L by category from your saved matchups</p>
+          </div>
+        </div>
+        <div class="deficit-charts">
+          <div class="deficit-radar-wrap">
+            <h3 class="section-label">Win% radar</h3>
+            <div id="deficitRadar" class="deficit-radar" aria-label="Category win percent radar"></div>
+          </div>
+          <div class="deficit-bars-wrap">
+            <h3 class="section-label">W – L by category</h3>
+            <div id="deficitBars" class="deficit-bars"></div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:1rem">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Cat</th>
+                <th class="num">W</th>
+                <th class="num">L</th>
+                <th class="num">T</th>
+                <th class="num">Win%</th>
+                <th class="num">Avg margin</th>
+              </tr>
+            </thead>
+            <tbody id="deficitBody"></tbody>
+          </table>
+        </div>
+        <div id="deficitWeekChart" class="deficit-week-chart" hidden></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>What I need (this week)</h2>
+            <p class="panel-sub" id="needSub">Live matchup gaps vs current opponent — full detail on Opponents</p>
+          </div>
+          <div class="actions">
+            <a class="btn ghost tiny" href="{{ url_for('opponents_page') }}">Open Opponents</a>
+          </div>
+        </div>
+        <div class="risk-strip" id="needRisk"></div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Cat</th>
+                <th class="num">You</th>
+                <th class="num">Them</th>
+                <th>Status</th>
+                <th>Need</th>
+                <th>Advice</th>
+              </tr>
+            </thead>
+            <tbody id="needBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Player contribution · roster</h2>
+            <p class="panel-sub" id="contribSub">z-score vs DB pool · % of team total · saves / hurts weak cats</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th class="num">Avg z</th>
+                <th>Saves</th>
+                <th>Hurts</th>
+                <th>Top cats</th>
+              </tr>
+            </thead>
+            <tbody id="contribBody"></tbody>
+          </table>
+        </div>
+        <div class="panel-head" style="margin-top:1rem">
+          <div>
+            <h2>Player contribution · free agents</h2>
+            <p class="panel-sub" id="contribFaSub">Same z-scores for available players (top by avg z)</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th class="num">Avg z</th>
+                <th>Saves</th>
+                <th>Hurts</th>
+                <th>Top cats</th>
+              </tr>
+            </thead>
+            <tbody id="contribFaBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>FA custom ranking</h2>
+            <p class="panel-sub" id="faCustomSub">Weighted by your weak cats (+ optional position boost)</p>
+          </div>
+          <div class="actions fa-weight-actions">
+            <label class="show-limit" for="faPosPrefer">
+              <span>Pos</span>
+              <input id="faPosPrefer" type="text" placeholder="C,PF" size="6" aria-label="Preferred positions">
+            </label>
+            <button type="button" class="btn ghost tiny" id="btnFaCustomApply">Apply</button>
+          </div>
+        </div>
+        <div class="fa-weight-row" id="faWeightRow"></div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th class="num">#</th>
+                <th>Player</th>
+                <th class="num">Score</th>
+                <th class="num">Games</th>
+                <th>Parts</th>
+              </tr>
+            </thead>
+            <tbody id="faCustomBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=17"></script>
+  <script src="{{ url_for('static', filename='js/decisions.js') }}?v=3"></script>
+</body>
+</html>

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Opponents · Yahoo Fantasy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=63">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
+        <h1>Opponents</h1>
+        <p class="sub">Past matchups, injuries, keys, form vs you, and weekly category targets.</p>
+        {% include "partials/nav.html" %}
+      </div>
+      <div class="actions">
+        {% include "partials/header_tools.html" %}
+      </div>
+    </header>
+
+    <div id="alert" class="alert" hidden></div>
+    <div id="jobBar" class="job-bar" hidden>
+      <div class="job-bar-head">
+        <strong id="jobBarLabel">Job</strong>
+        <div class="job-bar-head-meta">
+          <span id="jobBarMeta" class="job-bar-meta">—</span>
+        </div>
+      </div>
+      <p id="jobBarText" class="job-bar-text">Starting…</p>
+    </div>
+
+    <main class="opponents-layout">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Opponent</h2>
+            <p class="panel-sub" id="oppSub">Loading…</p>
+          </div>
+          <div class="actions">
+            <label class="show-limit" for="opponentSelect">
+              <span>Team</span>
+              <select id="opponentSelect" aria-label="Fantasy opponent"></select>
+            </label>
+            <label class="show-limit" for="formWindow">
+              <span>Form</span>
+              <select id="formWindow" aria-label="Recent matchups window">
+                <option value="2">Last 2</option>
+                <option value="3" selected>Last 3</option>
+              </select>
+            </label>
+            <button type="button" class="btn ghost tiny" id="btnReloadOpp">Reload</button>
+            <button type="button" class="btn primary tiny" id="btnScrapeOpp">
+              <span class="btn-label">Refresh roster</span>
+            </button>
+          </div>
+        </div>
+        <div class="opp-tabs" role="tablist">
+          <button type="button" class="opp-tab active" data-tab="form">Form vs you</button>
+          <button type="button" class="opp-tab" data-tab="targets">What I need</button>
+          <button type="button" class="opp-tab" data-tab="history">Matchup history</button>
+          <button type="button" class="opp-tab" data-tab="roster">Roster / keys</button>
+        </div>
+      </section>
+
+      <section class="panel opp-panel" data-panel="form">
+        <div class="panel-head">
+          <div>
+            <h2>Form comparison</h2>
+            <p class="panel-sub" id="formSub">Your roster avgs vs their recent matchup cats</p>
+          </div>
+        </div>
+        <div class="risk-strip" id="riskStrip"></div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Cat</th>
+                <th class="num">You</th>
+                <th class="num">Them (form)</th>
+                <th>Edge</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="formBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel opp-panel" data-panel="targets" hidden>
+        <div class="panel-head">
+          <div>
+            <h2>Weekly targets · what do I need</h2>
+            <p class="panel-sub" id="targetsSub">Live matchup totals + games left</p>
+          </div>
+        </div>
+        <div class="risk-strip" id="targetsRisk"></div>
+        <div class="table-wrap">
+          <table class="players-table">
+            <thead>
+              <tr>
+                <th>Cat</th>
+                <th class="num">You</th>
+                <th class="num">Them</th>
+                <th>Status</th>
+                <th>Need</th>
+                <th>Advice</th>
+              </tr>
+            </thead>
+            <tbody id="targetsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel opp-panel" data-panel="history" hidden>
+        <div class="panel-head">
+          <div>
+            <h2>Matchup history</h2>
+            <p class="panel-sub" id="historySub">Cats won + category lines when available</p>
+          </div>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section class="panel opp-panel" data-panel="roster" hidden>
+        <div class="decisions-split">
+          <div>
+            <div class="panel-head">
+              <div>
+                <h2>Key players</h2>
+                <p class="panel-sub">Rank + volume leaders</p>
+              </div>
+            </div>
+            <div id="keyPlayers" class="key-players"></div>
+          </div>
+          <div>
+            <div class="panel-head">
+              <div>
+                <h2>Injuries on their roster</h2>
+                <p class="panel-sub">From local Injuries DB</p>
+              </div>
+            </div>
+            <div id="oppInjuries" class="opp-injuries"></div>
+          </div>
+        </div>
+        <div class="panel-head" style="margin-top:1rem">
+          <div>
+            <h2 id="oppRosterTitle">Full roster</h2>
+            <p class="panel-sub" id="oppRosterSub">—</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="players-table wide-stats">
+            <thead>
+              <tr>
+                <th class="pos-col">Pos</th>
+                <th>Player</th>
+                <th class="num">Rank</th>
+                <th class="num">FG%</th>
+                <th class="num">FT%</th>
+                <th class="num">3PT</th>
+                <th class="num">PTS</th>
+                <th class="num">REB</th>
+                <th class="num">AST</th>
+                <th class="num">ST</th>
+                <th class="num">BLK</th>
+                <th class="num">TO</th>
+              </tr>
+            </thead>
+            <tbody id="oppRosterBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  {% include "partials/player_detail_modals.html" %}
+  <script src="{{ url_for('static', filename='js/player-detail.js') }}?v=17"></script>
+  <script src="{{ url_for('static', filename='js/opponents.js') }}?v=1"></script>
+</body>
+</html>

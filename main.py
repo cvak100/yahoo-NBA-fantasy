@@ -93,13 +93,15 @@ def cmd_serve() -> int:
     print(f"Dashboard: http://{host}:{port}")
     print(f"Players:   http://{host}:{port}/players")
     print(f"Watchlist: http://{host}:{port}/watchlist")
-    # Templates/static reload without restart; Python files auto-reload via reloader.
-    # Note: saving .py mid-scrape will interrupt that job — wait for jobs to finish first.
+    # Templates/static still pick up on refresh. Auto-reloader is off by default on
+    # Windows — it often wedges the listen socket ("Restarting with stat" then hangs).
+    # Opt in with YAHOO_RELOADER=1 if you want .py auto-reload.
+    use_reloader = os.environ.get("YAHOO_RELOADER", "").strip() in {"1", "true", "yes"}
     app.run(
         host=host,
         port=port,
         debug=True,
-        use_reloader=True,
+        use_reloader=use_reloader,
         use_debugger=False,
         threaded=True,
         exclude_patterns=[

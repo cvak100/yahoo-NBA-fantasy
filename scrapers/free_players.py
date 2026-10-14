@@ -27,6 +27,13 @@ _STAT_WEIGHTS = {
     "to": -1.0,
 }
 
+_DEFAULT_SCORE_WEIGHTS = {
+    "l7_stats": 1.0,
+    "l14_stats": 1.0,
+    "adds": 1.0,
+    "rank_l7": 1.0,
+}
+
 
 def _num(v: Any) -> float | None:
     if v is None:
@@ -112,6 +119,7 @@ def analyze_free_players(
     *,
     pool: int = POOL_N,
     top: int = TOP_N,
+    score_weights: dict[str, float] | None = None,
     progress_cb: ProgressCb | None = None,
 ) -> dict[str, Any]:
     """Scrape available players and return top N by combined score."""
@@ -208,6 +216,15 @@ def analyze_free_players(
     s_adds = _percentile_scores(adds_vals, higher_is_better=True)
     s_rank = _percentile_scores(rank_vals, higher_is_better=False)
 
+    score_w = dict(_DEFAULT_SCORE_WEIGHTS)
+    if isinstance(score_weights, dict):
+        for key in _DEFAULT_SCORE_WEIGHTS:
+            if key in score_weights:
+                try:
+                    score_w[key] = float(score_weights[key])
+                except (TypeError, ValueError):
+                    pass
+
     for p in players:
         pid = p["player_id"]
         parts = {
@@ -216,8 +233,17 @@ def analyze_free_players(
             "adds": s_adds.get(pid),
             "rank_l7": s_rank.get(pid),
         }
-        present = [v for v in parts.values() if v is not None]
-        score = round(sum(present) / len(present), 2) if present else 0.0
+        numer = 0.0
+        denom = 0.0
+        for key, val in parts.items():
+            if val is None:
+                continue
+            w = float(score_w.get(key) or 0.0)
+            if w <= 0:
+                continue
+            numer += float(val) * w
+            denom += w
+        score = round(numer / denom, 2) if denom else 0.0
         p["score_parts"] = parts
         p["score"] = score
 
@@ -240,14 +266,9 @@ def analyze_free_players(
         "pool": pool,
         "top": top,
         "stat1": {"l7_avg": l7_code, "l14_avg": l14_code},
-        "weights": {
-            "l7_stats": 1,
-            "l14_stats": 1,
-            "adds": 1,
-            "rank_l7": 1,
-        },
+        "weights": score_w,
         "note": (
-            "Score = average of percentiles (0–100) for L7 fantasy value, "
+            "Score = weighted average of percentiles (0–100) for L7 fantasy value, "
             "L14 fantasy value, Research Adds, and inverted L7 Yahoo rank."
         ),
         "players": top_players,
@@ -292,7 +313,13 @@ def load_free_players() -> dict[str, Any]:
 
 
 def sync_free_players(*, progress_cb: ProgressCb | None = None) -> dict[str, Any]:
+    from app_settings import load_app_settings
     from chrome_browser import attach_chrome
+
+    settings = load_app_settings()
+    pool = int(settings.get("free_players_pool") or POOL_N)
+    top = int(settings.get("free_players_top") or TOP_N)
+    score_weights = settings.get("free_players_score_weights") or None
 
     if progress_cb:
         progress_cb(0, 5, "Attaching Chrome…")
@@ -301,4 +328,10 @@ def sync_free_players(*, progress_cb: ProgressCb | None = None) -> dict[str, Any
         driver.set_page_load_timeout(90)
     except Exception:
         pass
-    return analyze_free_players(driver, progress_cb=progress_cb)
+    return analyze_free_players(
+        driver,
+        pool=pool,
+        top=top,
+        score_weights=score_weights if isinstance(score_weights, dict) else None,
+        progress_cb=progress_cb,
+    )

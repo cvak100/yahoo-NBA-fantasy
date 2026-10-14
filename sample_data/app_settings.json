@@ -9,5 +9,30 @@
     "trends": true,
     "available": true
   },
-  "include_my_roster": true
+  "include_my_roster": true,
+  "free_players_pool": 100,
+  "free_players_top": 10,
+  "free_players_score_weights": {
+    "l7_stats": 1.0,
+    "l14_stats": 1.0,
+    "adds": 1.0,
+    "rank_l7": 1.0
+  },
+  "streaming_top_n": 10,
+  "fa_ranking_limit": 25,
+  "fa_default_weights": {
+    "fg_pct": 0.8,
+    "ft_pct": 0.8,
+    "threes": 1.0,
+    "pts": 0.6,
+    "reb": 1.0,
+    "ast": 0.8,
+    "stl": 1.0,
+    "blk": 1.0,
+    "tov": 0.5
+  },
+  "analytics_top_n": 5,
+  "league_id": null,
+  "chrome_debugger_address": "127.0.0.1:9222",
+  "page_load_wait_sec": 4
 }

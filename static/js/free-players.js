@@ -5,8 +5,12 @@
   const LEAGUE_ID = document.body?.dataset?.leagueId || "";
 
   let freeData = null;
+  let startersData = null;
   /** @type {{ key: string, dir: 'asc' | 'desc' }} */
   let sortState = { key: "score", dir: "desc" };
+  /** @type {{ key: string, dir: 'asc' | 'desc' }} */
+  let startersSort = { key: "yahoo_rank", dir: "asc" };
+  const STARTERS_COLS = 14;
 
   function showAlert(msg) {
     alertEl.hidden = !msg;
@@ -231,34 +235,20 @@
     });
   }
 
-  function sortTh(key, label, { num = false } = {}) {
-    const active = sortState.key === key;
-    const arrow = !active ? "" : sortState.dir === "asc" ? " ▲" : " ▼";
-    const cls = ["sortable-th", num ? "num" : "", active ? "is-sorted" : ""]
-      .filter(Boolean)
-      .join(" ");
-    return `<th class="${cls}" data-sort-key="${esc(key)}" role="columnheader" tabindex="0" title="Sort by ${esc(label)}">${esc(label)}${arrow}</th>`;
-  }
-
-  function bindSortHeaders() {
-    const table = $("#freeTable");
+  function bindSortHeaders(tableSel, getState, setState, onSort, ascKeys) {
+    const table = $(tableSel);
     if (!table) return;
     table.querySelectorAll(".sortable-th").forEach((th) => {
       const activate = () => {
         const key = th.dataset.sortKey;
         if (!key) return;
-        if (sortState.key === key) {
-          sortState = { key, dir: sortState.dir === "desc" ? "asc" : "desc" };
+        const state = getState();
+        if (state.key === key) {
+          setState({ key, dir: state.dir === "desc" ? "asc" : "desc" });
         } else {
-          const ascDefault =
-            key === "name" ||
-            key === "positions" ||
-            key === "rank_l7" ||
-            key === "season_rank" ||
-            key === "pool_rank";
-          sortState = { key, dir: ascDefault ? "asc" : "desc" };
+          setState({ key, dir: ascKeys.has(key) ? "asc" : "desc" });
         }
-        if (freeData) renderFreePlayers(freeData);
+        onSort();
       };
       th.addEventListener("click", activate);
       th.addEventListener("keydown", (e) => {
@@ -268,6 +258,15 @@
         }
       });
     });
+  }
+
+  function sortThFor(state, key, label, { num = false } = {}) {
+    const active = state.key === key;
+    const arrow = !active ? "" : state.dir === "asc" ? " ▲" : " ▼";
+    const cls = ["sortable-th", num ? "num" : "", active ? "is-sorted" : ""]
+      .filter(Boolean)
+      .join(" ");
+    return `<th class="${cls}" data-sort-key="${esc(key)}" role="columnheader" tabindex="0" title="Sort by ${esc(label)}">${esc(label)}${arrow}</th>`;
   }
 
   function renderFreePlayers(data) {
@@ -313,20 +312,21 @@
     }
 
     if (head) {
+      const th = (key, label, opts) => sortThFor(sortState, key, label, opts);
       head.innerHTML = `
-        ${sortTh("pool_rank", "#", { num: true })}
-        ${sortTh("name", "Player")}
-        ${sortTh("positions", "Pos")}
-        ${sortTh("score", "Score", { num: true })}
-        ${sortTh("rank_l7", "L7 Rank", { num: true })}
-        ${sortTh("l7_pts", "L7 Pts", { num: true })}
-        ${sortTh("l7_reb", "L7 Reb", { num: true })}
-        ${sortTh("l7_ast", "L7 Ast", { num: true })}
-        ${sortTh("l14_pts", "L14 Pts", { num: true })}
-        ${sortTh("l14_reb", "L14 Reb", { num: true })}
-        ${sortTh("l14_ast", "L14 Ast", { num: true })}
-        ${sortTh("adds", "Adds", { num: true })}
-        ${sortTh("season_rank", "Season AR", { num: true })}
+        ${th("pool_rank", "#", { num: true })}
+        ${th("name", "Player")}
+        ${th("positions", "Pos")}
+        ${th("score", "Score", { num: true })}
+        ${th("rank_l7", "L7 Rank", { num: true })}
+        ${th("l7_pts", "L7 Pts", { num: true })}
+        ${th("l7_reb", "L7 Reb", { num: true })}
+        ${th("l7_ast", "L7 Ast", { num: true })}
+        ${th("l14_pts", "L14 Pts", { num: true })}
+        ${th("l14_reb", "L14 Reb", { num: true })}
+        ${th("l14_ast", "L14 Ast", { num: true })}
+        ${th("adds", "Adds", { num: true })}
+        ${th("season_rank", "Season AR", { num: true })}
         <th></th>`;
     }
 
@@ -375,7 +375,180 @@
         if (Number.isFinite(id) && window.PlayerDetail) window.PlayerDetail.open(id);
       });
     });
-    bindSortHeaders();
+    bindSortHeaders(
+      "#freeTable",
+      () => sortState,
+      (s) => {
+        sortState = s;
+      },
+      () => {
+        if (freeData) renderFreePlayers(freeData);
+      },
+      new Set(["name", "positions", "rank_l7", "season_rank", "pool_rank"])
+    );
+  }
+
+  function starterSortValue(p, key) {
+    if (
+      key === "name" ||
+      key === "nba_team" ||
+      key === "starter_slot" ||
+      key === "positions" ||
+      key === "fantasy_owner"
+    ) {
+      return String(p[key] || "");
+    }
+    return parseNum(p[key]);
+  }
+
+  function sortStarters(players, key, dir) {
+    const mult = dir === "asc" ? 1 : -1;
+    const slotOrder = { PG: 0, SG: 1, SF: 2, PF: 3, C: 4 };
+    return [...players].sort((a, b) => {
+      if (
+        key === "name" ||
+        key === "nba_team" ||
+        key === "positions" ||
+        key === "fantasy_owner"
+      ) {
+        return (
+          String(starterSortValue(a, key)).localeCompare(
+            String(starterSortValue(b, key))
+          ) * mult
+        );
+      }
+      if (key === "starter_slot") {
+        const av = slotOrder[a.starter_slot] ?? 99;
+        const bv = slotOrder[b.starter_slot] ?? 99;
+        if (av === bv) {
+          return String(a.nba_team || "").localeCompare(String(b.nba_team || ""));
+        }
+        return (av - bv) * mult;
+      }
+      const av = starterSortValue(a, key);
+      const bv = starterSortValue(b, key);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (av === bv) {
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      }
+      return (av - bv) * mult;
+    });
+  }
+
+  function renderStarters(data) {
+    startersData = data;
+    const body = $("#startersBody");
+    const head = $("#startersTable thead tr");
+    const sub = $("#startersSub");
+    const note = $("#startersNote");
+    if (!body) return;
+    const players = data.players || [];
+    const avail = data.starter_slots_available ?? players.length;
+    const total = data.starter_slots_total;
+    const when = fmtWhen(data.scraped_at);
+    const src = data.source === "cbsports" ? "CBS depth" : "starters";
+    sub.textContent =
+      total != null
+        ? `${avail} free of ${total} ${src} slots` + (when ? ` · ${when}` : "")
+        : `${players.length} available starters`;
+    if (note) {
+      note.hidden = !data.note;
+      note.textContent = data.note || "";
+    }
+    if (!players.length) {
+      if (head) {
+        head.innerHTML = `
+          <th class="num">#</th>
+          <th>Player</th>
+          <th>Team</th>
+          <th>Starter</th>
+          <th>Pos</th>
+          <th class="num">Rank</th>
+          <th class="num">Owned%</th>
+          <th class="num">PTS</th>
+          <th class="num">REB</th>
+          <th class="num">AST</th>
+          <th class="num">STL</th>
+          <th class="num">BLK</th>
+          <th class="num">3PM</th>
+          <th></th>`;
+      }
+      body.innerHTML = `<tr><td colspan="${STARTERS_COLS}" class="muted">No free NBA starters found (all slots owned, or refresh player ownership).</td></tr>`;
+      return;
+    }
+
+    if (head) {
+      const th = (key, label, opts) => sortThFor(startersSort, key, label, opts);
+      head.innerHTML = `
+        <th class="num">#</th>
+        ${th("name", "Player")}
+        ${th("nba_team", "Team")}
+        ${th("starter_slot", "Starter")}
+        ${th("positions", "Pos")}
+        ${th("yahoo_rank", "Rank", { num: true })}
+        ${th("owned_pct", "Owned%", { num: true })}
+        ${th("pts", "PTS", { num: true })}
+        ${th("reb", "REB", { num: true })}
+        ${th("ast", "AST", { num: true })}
+        ${th("stl", "STL", { num: true })}
+        ${th("blk", "BLK", { num: true })}
+        ${th("threes", "3PM", { num: true })}
+        <th></th>`;
+    }
+
+    const sorted = sortStarters(players, startersSort.key, startersSort.dir);
+    body.innerHTML = sorted
+      .map((p, idx) => {
+        const dbId = Number(p.db_id);
+        const clickable = Number.isFinite(dbId) && dbId > 0;
+        const owner = p.fantasy_owner || "FA";
+        const yahooHref = yahooSearchUrl(p);
+        const yahooLink = yahooHref
+          ? `<a class="btn tiny ghost yahoo-search-link" href="${esc(yahooHref)}" target="_blank" rel="noopener noreferrer" title="Open Yahoo player search">Yahoo</a>`
+          : "";
+        return `
+          <tr class="${clickable ? "clickable" : ""}" ${clickable ? `data-db-id="${dbId}"` : ""}>
+            <td class="num">${idx + 1}</td>
+            <td>
+              <strong>${esc(p.name)}</strong>
+              <div class="subline">${esc(owner)}</div>
+            </td>
+            <td>${cell(p.nba_team)}</td>
+            <td><strong>${cell(p.starter_slot)}</strong></td>
+            <td>${cell(p.positions)}</td>
+            <td class="num">${cell(p.yahoo_rank)}</td>
+            <td class="num">${cell(p.owned_pct)}</td>
+            <td class="num">${cell(p.pts)}</td>
+            <td class="num">${cell(p.reb)}</td>
+            <td class="num">${cell(p.ast)}</td>
+            <td class="num">${cell(p.stl)}</td>
+            <td class="num">${cell(p.blk)}</td>
+            <td class="num">${cell(p.threes)}</td>
+            <td class="ta-end">${yahooLink}</td>
+          </tr>`;
+      })
+      .join("");
+
+    body.querySelectorAll("tr[data-db-id]").forEach((tr) => {
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("a, button")) return;
+        const id = Number(tr.dataset.dbId);
+        if (Number.isFinite(id) && window.PlayerDetail) window.PlayerDetail.open(id);
+      });
+    });
+    bindSortHeaders(
+      "#startersTable",
+      () => startersSort,
+      (s) => {
+        startersSort = s;
+      },
+      () => {
+        if (startersData) renderStarters(startersData);
+      },
+      new Set(["name", "nba_team", "starter_slot", "positions", "yahoo_rank"])
+    );
   }
 
   async function loadFreePlayers() {
@@ -383,6 +556,50 @@
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || "Failed to load.");
     renderFreePlayers(data);
+  }
+
+  async function loadStarters() {
+    const res = await fetch("/api/free-starters");
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to load starters.");
+    renderStarters(data);
+  }
+
+  async function refreshStartersCbs() {
+    const btn = $("#btnRefreshStarters");
+    setBusy(btn, true, "Refresh CBS", "Refreshing…");
+    showAlert("");
+    try {
+      const res = await fetch("/api/free-starters/refresh", { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) {
+        showAlert(data.error || "Could not start CBS depth refresh.");
+        return;
+      }
+      const jobId = data.job?.id || data.job_id;
+      if (jobId) {
+        showJobBar(
+          data.job || { id: jobId, label: "CBS depth · free starters", status: "running" }
+        );
+        const job = await pollJob(jobId);
+        if (job.status === "cancelled") {
+          showAlert("CBS depth refresh cancelled.");
+        } else {
+          const n = (job.result && job.result.count) || 0;
+          showAlert(`CBS depth updated — ${n} free starter${n === 1 ? "" : "s"}.`);
+        }
+      }
+      await loadStarters();
+    } catch (err) {
+      showAlert(String(err));
+    } finally {
+      setBusy(btn, false, "Refresh CBS", "Refreshing…");
+      window.setTimeout(() => {
+        if (!$("#btnRefreshStarters")?.disabled && !$("#btnAnalyzeFree")?.disabled) {
+          hideJobBar();
+        }
+      }, 6000);
+    }
   }
 
   async function analyzeNow() {
@@ -424,21 +641,29 @@
       const data = await (await fetch("/api/jobs/active")).json();
       if (
         data.job &&
-        data.job.kind === "free_players" &&
         (data.job.status === "running" ||
           data.job.status === "queued" ||
           data.job.status === "paused")
       ) {
-        setBusy($("#btnAnalyzeFree"), true, "Analyze", "Analyzing…");
-        showJobBar(data.job);
-        const job = await pollJob(data.job.id);
-        if (job.status === "cancelled") showAlert("Analysis cancelled.");
-        await loadFreePlayers();
+        if (data.job.kind === "free_players") {
+          setBusy($("#btnAnalyzeFree"), true, "Analyze", "Analyzing…");
+          showJobBar(data.job);
+          const job = await pollJob(data.job.id);
+          if (job.status === "cancelled") showAlert("Analysis cancelled.");
+          await loadFreePlayers();
+        } else if (data.job.kind === "free_starters") {
+          setBusy($("#btnRefreshStarters"), true, "Refresh CBS", "Refreshing…");
+          showJobBar(data.job);
+          const job = await pollJob(data.job.id);
+          if (job.status === "cancelled") showAlert("CBS depth refresh cancelled.");
+          await loadStarters();
+        }
       }
     } catch (_) {
       /* ignore */
     } finally {
       setBusy($("#btnAnalyzeFree"), false, "Analyze", "Analyzing…");
+      setBusy($("#btnRefreshStarters"), false, "Refresh CBS", "Refreshing…");
     }
   }
 
@@ -446,6 +671,10 @@
   $("#btnReloadFree")?.addEventListener("click", () => {
     loadFreePlayers().catch((err) => showAlert(String(err)));
   });
+  $("#btnReloadStarters")?.addEventListener("click", () => {
+    loadStarters().catch((err) => showAlert(String(err)));
+  });
+  $("#btnRefreshStarters")?.addEventListener("click", refreshStartersCbs);
   $("#btnPauseResume")?.addEventListener("click", togglePauseResume);
   $("#btnCancelJob")?.addEventListener("click", cancelActiveJob);
 
@@ -454,7 +683,8 @@
     hideDelete: true,
   });
 
-  loadFreePlayers()
-    .catch((err) => showAlert(String(err)))
-    .then(resumeActiveJobIfAny);
+  Promise.all([
+    loadFreePlayers().catch((err) => showAlert(String(err))),
+    loadStarters().catch((err) => showAlert(String(err))),
+  ]).then(resumeActiveJobIfAny);
 })();
