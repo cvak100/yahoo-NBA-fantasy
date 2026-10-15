@@ -27,6 +27,35 @@
     hideDelete: false,
   };
 
+  function leagueId() {
+    return (
+      $("#btnYahooPlayer")?.dataset?.leagueId ||
+      document.body?.dataset?.leagueId ||
+      document.querySelector("[data-league-id]")?.dataset?.leagueId ||
+      ""
+    );
+  }
+
+  function yahooPlayerSearchUrl(name) {
+    const q = encodeURIComponent(String(name || "").trim());
+    const lid = leagueId();
+    if (!lid || !q) return "";
+    return `https://basketball.fantasysports.yahoo.com/nba/${lid}/playersearch?search=${q}`;
+  }
+
+  function setYahooPlayerLink(name) {
+    const a = $("#btnYahooPlayer");
+    if (!a) return;
+    const href = yahooPlayerSearchUrl(name);
+    if (!href) {
+      a.hidden = true;
+      a.removeAttribute("href");
+      return;
+    }
+    a.href = href;
+    a.hidden = false;
+  }
+
   function setFavButton(btn, on) {
     if (!btn) return;
     btn.classList.toggle("is-on", on);
@@ -218,6 +247,7 @@
     currentDetailId = null;
     currentGameLogs = [];
     currentPlayerName = "";
+    setYahooPlayerLink("");
     const modal = $("#detailModal");
     if (modal) modal.hidden = true;
     const gl = $("#gameLogModal");
@@ -233,6 +263,7 @@
     document.body.classList.add("modal-open");
     $("#detailName").textContent = "Loading…";
     $("#detailMeta").textContent = "";
+    setYahooPlayerLink("");
     $("#detailSeasonTotal").innerHTML = "Loading…";
     $("#detailSeasonAvg").innerHTML = "Loading…";
     $("#detailDepth").innerHTML = "Loading…";
@@ -260,6 +291,7 @@
       ]
         .filter(Boolean)
         .join(" · ");
+      setYahooPlayerLink(p.full_name);
       setFavButton($("#btnFavPlayer"), !!p.is_favourite);
 
       const seasonAll = data.season || [];

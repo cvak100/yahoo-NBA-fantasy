@@ -1,3 +1,16 @@
+<button
+  type="button"
+  class="btn icon-btn"
+  id="btnGlobalRefresh"
+  title="Morning refresh"
+  aria-label="Morning refresh"
+  aria-haspopup="dialog"
+>
+  <svg class="icon-gear" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12a9 9 0 1 1-2.6-6.2"></path>
+    <path d="M21 3v6h-6"></path>
+  </svg>
+</button>
 <a
   class="btn icon-btn yahoo-btn"
   href="https://basketball.fantasysports.yahoo.com/nba/{{ league_id }}"
@@ -112,4 +125,66 @@
     </div>
   </div>
 </div>
+<div class="modal refresh-modal" id="globalRefreshModal" hidden>
+  <div class="modal-backdrop" data-close-global-refresh></div>
+  <div class="modal-dialog panel refresh-dialog" role="dialog" aria-modal="true" aria-labelledby="globalRefreshTitle">
+    <div class="panel-head">
+      <div>
+        <h2 id="globalRefreshTitle">Morning refresh</h2>
+        <p class="panel-sub">Pick what to pull from Yahoo. Needs Chrome debug open.</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn ghost" data-close-global-refresh>Close</button>
+      </div>
+    </div>
+    <form id="globalRefreshForm" class="refresh-modal-form">
+      <fieldset class="settings-steps refresh-modal-steps">
+        <legend>Steps</legend>
+        <label class="settings-check" for="grStepLeague">
+          <input id="grStepLeague" data-gr-step="league" type="checkbox" checked>
+          <span>League data</span>
+        </label>
+        <label class="settings-check" for="grStepRoster">
+          <input id="grStepRoster" data-gr-step="roster" type="checkbox" checked>
+          <span>My roster players</span>
+        </label>
+        <label class="settings-check" for="grStepNews">
+          <input id="grStepNews" data-gr-step="news" type="checkbox" checked>
+          <span>Fantasy news</span>
+        </label>
+        <label class="settings-check" for="grStepInjuries">
+          <input id="grStepInjuries" data-gr-step="injuries" type="checkbox" checked>
+          <span>Injury report</span>
+        </label>
+        <label class="settings-check" for="grStepTrends">
+          <input id="grStepTrends" data-gr-step="trends" type="checkbox" checked>
+          <span>Trends</span>
+        </label>
+        <label class="settings-check" for="grStepAvailable">
+          <input id="grStepAvailable" data-gr-step="available" type="checkbox" checked>
+          <span>Top available players</span>
+        </label>
+      </fieldset>
+      <label class="settings-field" for="grAvailableCount">
+        <span>Available players to check</span>
+        <input id="grAvailableCount" type="number" min="1" max="500" step="1" value="100">
+        <span class="settings-hint">Only used if “Top available players” is on.</span>
+      </label>
+      <label class="settings-check" for="grRemember">
+        <input id="grRemember" type="checkbox">
+        <span>Remember these choices in Settings</span>
+      </label>
+      <div class="refresh-modal-actions">
+        <button type="button" class="btn ghost tiny" id="btnGrSelectAll">All</button>
+        <button type="button" class="btn ghost tiny" id="btnGrSelectNone">None</button>
+        <button type="submit" class="btn primary" id="btnStartGlobalRefresh">
+          <span class="btn-label">Start refresh</span>
+          <span class="btn-spinner" hidden></span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/notes.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='js/global-refresh.js') }}?v=4"></script>

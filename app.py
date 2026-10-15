@@ -30,7 +30,10 @@ from db import (
     sync_fantasy_news_links,
     update_note,
 )
-from app_settings import load_app_settings, save_app_settings
+from app_settings import apply_runtime_config, load_app_settings, save_app_settings
+
+# Apply persisted league / chrome overrides for this process.
+apply_runtime_config()
 from jobs import active_job, cancel_job, get_job, pause_job, resume_job, scrape_busy, start_job
 from scrapers.fantasy_news import SOURCE_CBS, SOURCE_NBA, sync_fantasy_news
 from scrapers.injuries import sync_injuries
@@ -225,6 +228,20 @@ def scouting_page():
     )
 
 
+@app.get("/opponents")
+def opponents_page():
+    return render_template(
+        "opponents.html", league_id=config.LEAGUE_ID, active="opponents"
+    )
+
+
+@app.get("/decisions")
+def decisions_page():
+    return render_template(
+        "decisions.html", league_id=config.LEAGUE_ID, active="decisions"
+    )
+
+
 @app.get("/settings")
 def settings_page():
     return render_template("settings.html", league_id=config.LEAGUE_ID, active="settings")
@@ -273,6 +290,63 @@ def api_scouting():
     team_id = (request.args.get("team_id") or "").strip() or None
     try:
         return jsonify(build_scouting(team_id))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/decisions")
+def api_decisions():
+    from decisions import load_decisions_page
+    from player_contribution import build_fa_custom_ranking, build_player_contributions
+
+    try:
+        from opponent_analyse import build_weekly_targets
+
+        data = load_decisions_page()
+        data["contributions"] = build_player_contributions(include_fa=True, fa_limit=30)
+        data["weekly_targets"] = build_weekly_targets()
+        # Optional custom weights: ?w_reb=1.5&w_blk=1.2&pos=C,PF
+        weights = {}
+        for key in (
+            "fg_pct",
+            "ft_pct",
+            "threes",
+            "pts",
+            "reb",
+            "ast",
+            "stl",
+            "blk",
+            "tov",
+        ):
+            raw = request.args.get(f"w_{key}")
+            if raw is None or raw == "":
+                continue
+            try:
+                weights[key] = float(raw)
+            except ValueError:
+                pass
+        pos_raw = (request.args.get("pos") or "").strip()
+        prefer = [p for p in pos_raw.replace(";", ",").split(",") if p.strip()]
+        settings = load_app_settings()
+        data["fa_custom"] = build_fa_custom_ranking(
+            weights=weights or None,
+            prefer_positions=prefer or None,
+            limit=int(settings.get("fa_ranking_limit") or 25),
+        )
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/opponents")
+def api_opponents():
+    from opponent_analyse import build_opponent_analyse
+
+    team_id = (request.args.get("team_id") or "").strip() or None
+    last_n = request.args.get("last_n", default=3, type=int) or 3
+    last_n = max(2, min(int(last_n), 5))
+    try:
+        return jsonify(build_opponent_analyse(team_id, last_n=last_n))
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
@@ -392,7 +466,18 @@ def api_notes_delete(note_id: int):
 
 @app.get("/api/app-settings")
 def api_app_settings_get():
-    return jsonify({"ok": True, "settings": load_app_settings()})
+    settings = load_app_settings()
+    return jsonify(
+        {
+            "ok": True,
+            "settings": settings,
+            "effective": {
+                "league_id": config.LEAGUE_ID,
+                "chrome_debugger_address": config.CHROME_DEBUGGER_ADDRESS,
+                "page_load_wait_sec": config.PAGE_LOAD_WAIT_SEC,
+            },
+        }
+    )
 
 
 @app.put("/api/app-settings")
@@ -406,7 +491,18 @@ def api_app_settings_save():
             from scrapers.sync import apply_my_team_selection
 
             dashboard = apply_my_team_selection(persist=True)
-        return jsonify({"ok": True, "settings": settings, "dashboard": dashboard})
+        return jsonify(
+            {
+                "ok": True,
+                "settings": settings,
+                "dashboard": dashboard,
+                "effective": {
+                    "league_id": config.LEAGUE_ID,
+                    "chrome_debugger_address": config.CHROME_DEBUGGER_ADDRESS,
+                    "page_load_wait_sec": config.PAGE_LOAD_WAIT_SEC,
+                },
+            }
+        )
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
@@ -415,9 +511,26 @@ def api_app_settings_save():
 @app.post("/api/refresh")
 def api_sync():
     """Main morning refresh: league + roster + available + news/injuries/trends."""
+    payload = request.get_json(silent=True) or {}
+    steps = payload.get("refresh_steps")
+    if steps is not None and not isinstance(steps, dict):
+        steps = None
+    count = payload.get("refresh_available_count")
+    if payload.get("remember") and (steps is not None or count is not None):
+        save_payload: dict = {}
+        if steps is not None:
+            save_payload["refresh_steps"] = steps
+        if count is not None:
+            save_payload["refresh_available_count"] = count
+        if save_payload:
+            save_app_settings(save_payload)
 
     def run(progress):
-        return run_main_refresh(progress_cb=progress)
+        return run_main_refresh(
+            progress_cb=progress,
+            refresh_steps=steps,
+            refresh_available_count=count,
+        )
 
     return jsonify(
         start_job(
@@ -648,6 +761,35 @@ def api_free_players():
         )
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/api/free-starters")
+def api_free_starters():
+    from free_starters import load_available_starters
+
+    try:
+        return jsonify(load_available_starters())
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/free-starters/refresh")
+def api_free_starters_refresh():
+    """Scrape CBS Sports depth charts, then list FA/W starters."""
+    from free_starters import load_available_starters
+    from scrapers.cbs_depth import sync_cbs_depth
+
+    def run(progress):
+        sync_cbs_depth(progress_cb=progress)
+        return load_available_starters()
+
+    return jsonify(
+        start_job(
+            kind="free_starters",
+            label="CBS depth · free starters",
+            fn=run,
+        )
+    )
 
 
 @app.post("/api/free-players/refresh")

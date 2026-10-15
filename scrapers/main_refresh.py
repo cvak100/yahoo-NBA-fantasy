@@ -470,23 +470,56 @@ def _upsert_player_list(
     }
 
 
-def run_main_refresh(*, progress_cb: ProgressCb | None = None) -> dict[str, Any]:
+def run_main_refresh(
+    *,
+    progress_cb: ProgressCb | None = None,
+    refresh_steps: dict[str, Any] | None = None,
+    refresh_available_count: int | None = None,
+) -> dict[str, Any]:
     """Full morning refresh pipeline with step-by-step progress."""
     settings = load_app_settings()
-    available_n = int(settings.get("refresh_available_count") or config.DEFAULT_REFRESH_AVAILABLE_COUNT)
-    enabled = {
-        s["key"]
-        for s in MAIN_STEPS
-        if refresh_step_enabled(settings, s["key"])
-    }
+    if refresh_available_count is not None:
+        try:
+            available_n = int(refresh_available_count)
+        except (TypeError, ValueError):
+            available_n = int(
+                settings.get("refresh_available_count")
+                or config.DEFAULT_REFRESH_AVAILABLE_COUNT
+            )
+    else:
+        available_n = int(
+            settings.get("refresh_available_count")
+            or config.DEFAULT_REFRESH_AVAILABLE_COUNT
+        )
+    available_n = max(
+        config.MIN_REFRESH_AVAILABLE_COUNT,
+        min(config.MAX_REFRESH_AVAILABLE_COUNT, available_n),
+    )
+
+    if isinstance(refresh_steps, dict):
+        enabled = {
+            s["key"]
+            for s in MAIN_STEPS
+            if bool(refresh_steps.get(s["key"], False))
+        }
+        steps_snapshot = {
+            s["key"]: bool(refresh_steps.get(s["key"], False)) for s in MAIN_STEPS
+        }
+    else:
+        enabled = {
+            s["key"]
+            for s in MAIN_STEPS
+            if refresh_step_enabled(settings, s["key"])
+        }
+        steps_snapshot = dict(settings.get("refresh_steps") or {})
     tracker = _StepTracker(progress_cb, enabled_keys=enabled)
     result: dict[str, Any] = {
         "ok": True,
         "scraped_at": utc_now_iso(),
         "settings": {
             "refresh_available_count": available_n,
-            "refresh_steps": dict(settings.get("refresh_steps") or {}),
-            "include_my_roster": bool((settings.get("refresh_steps") or {}).get("roster", True)),
+            "refresh_steps": steps_snapshot,
+            "include_my_roster": bool(steps_snapshot.get("roster", True)),
         },
         "steps": {},
         "timing": {

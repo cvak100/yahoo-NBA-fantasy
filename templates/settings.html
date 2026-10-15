@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=53">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}?v=65">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -16,7 +16,7 @@
       <div class="brand">
         <p class="eyebrow">Yahoo Fantasy · NBA {{ league_id }}</p>
         <h1>Settings</h1>
-        <p class="sub">Local app and player database controls</p>
+        <p class="sub">Local app preferences by category</p>
         {% include "partials/nav.html" %}
       </div>
       <div class="actions">
@@ -27,28 +27,55 @@
     <div id="alert" class="alert" hidden></div>
 
     <main class="settings-layout">
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>Main refresh</h2>
-            <p class="panel-sub">Used by Dashboard → Refresh (morning update)</p>
-          </div>
+      <nav class="settings-tabs" role="tablist" aria-label="Settings categories">
+        <button type="button" class="settings-tab active" role="tab" aria-selected="true" data-tab="league">League</button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-tab="refresh">Refresh</button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-tab="free">Free Players</button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-tab="decisions">Decisions</button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-tab="tech">Technical</button>
+        <button type="button" class="settings-tab" role="tab" aria-selected="false" data-tab="database">Database</button>
+      </nav>
+
+      <form id="settingsForm" class="settings-form">
+        <div class="settings-actions" data-save-bar>
+          <button type="submit" class="btn primary" id="btnSaveSettings">
+            <span class="btn-label">Save settings</span>
+            <span class="btn-spinner" hidden></span>
+          </button>
         </div>
-        <p class="settings-note">
-          Pick which steps run on Dashboard Refresh. Order when enabled:
-          league → roster → news → injuries → trends → top
-          <strong>N available</strong> (last, usually slowest).
-          Each run stores step times for average wait / ETA.
-        </p>
-        <form id="refreshSettingsForm" class="settings-form">
+
+        <section class="panel settings-panel" data-tab-panel="league" role="tabpanel">
+          <div class="panel-head">
+            <div>
+              <h2>League &amp; team</h2>
+              <p class="panel-sub">Who you are in this Yahoo league</p>
+            </div>
+          </div>
+          <label class="settings-field" for="leagueIdInput">
+            <span>League ID</span>
+            <input id="leagueIdInput" name="league_id" type="text" inputmode="numeric" placeholder="e.g. 49605" autocomplete="off">
+            <span class="settings-hint">Overrides <code>config_local</code> / env for this app. Leave blank to keep file/env value. Restart recommended after change.</span>
+          </label>
           <label class="settings-field" for="myTeamSelect">
             <span>My team</span>
             <select id="myTeamSelect" name="my_team_id" aria-label="My fantasy team">
               <option value="">Detect from Yahoo login…</option>
             </select>
-            <span class="settings-hint">Updates My Team, standings highlight, and matchup immediately. Run Refresh for that team’s full roster + season schedule.</span>
+            <span class="settings-hint">Updates My Team, standings highlight, and matchup. Run Refresh for that team’s roster + schedule.</span>
           </label>
+        </section>
 
+        <section class="panel settings-panel" data-tab-panel="refresh" role="tabpanel" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Main refresh</h2>
+              <p class="panel-sub">Dashboard → Refresh (morning update)</p>
+            </div>
+          </div>
+          <p class="settings-note">
+            Order when enabled: league → roster → news → injuries → trends → top
+            <strong>N available</strong> (last, usually slowest).
+          </p>
           <fieldset class="settings-steps">
             <legend>Refresh steps</legend>
             <label class="settings-check" for="stepLeague">
@@ -76,30 +103,118 @@
               <span>Top available players</span>
             </label>
           </fieldset>
-
           <label class="settings-field" for="refreshAvailableCount">
             <span>Available players to check</span>
-            <input
-              id="refreshAvailableCount"
-              name="refresh_available_count"
-              type="number"
-              min="1"
-              max="500"
-              step="1"
-              value="100"
-            >
-            <span class="settings-hint">First N free agents on Yahoo (by Average Rank). Min 1 · typical 50–200.</span>
+            <input id="refreshAvailableCount" name="refresh_available_count" type="number" min="1" max="500" step="1" value="100">
+            <span class="settings-hint">First N free agents on Yahoo (by Average Rank). Typical 50–200.</span>
           </label>
-          <div class="settings-actions">
-            <button type="submit" class="btn primary" id="btnSaveRefreshSettings">
-              <span class="btn-label">Save</span>
-              <span class="btn-spinner" hidden></span>
-            </button>
-          </div>
-        </form>
-      </section>
+        </section>
 
-      <section class="panel">
+        <section class="panel settings-panel" data-tab-panel="free" role="tabpanel" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Free Players</h2>
+              <p class="panel-sub">Analyze free agents page</p>
+            </div>
+          </div>
+          <div class="settings-grid-2">
+            <label class="settings-field" for="freePool">
+              <span>Pool size</span>
+              <input id="freePool" name="free_players_pool" type="number" min="25" max="200" step="1" value="100">
+              <span class="settings-hint">How many FA to scrape (25–200).</span>
+            </label>
+            <label class="settings-field" for="freeTop">
+              <span>Top results</span>
+              <input id="freeTop" name="free_players_top" type="number" min="1" max="50" step="1" value="10">
+              <span class="settings-hint">How many to keep in the table.</span>
+            </label>
+          </div>
+          <fieldset class="settings-weights">
+            <legend>Score weights</legend>
+            <p class="settings-note">Weighted average of percentiles. Set 0 to ignore a factor.</p>
+            <div class="settings-grid-4">
+              <label class="settings-field" for="wL7">
+                <span>L7 stats</span>
+                <input id="wL7" data-free-w="l7_stats" type="number" min="0" max="10" step="0.1" value="1">
+              </label>
+              <label class="settings-field" for="wL14">
+                <span>L14 stats</span>
+                <input id="wL14" data-free-w="l14_stats" type="number" min="0" max="10" step="0.1" value="1">
+              </label>
+              <label class="settings-field" for="wAdds">
+                <span>Adds</span>
+                <input id="wAdds" data-free-w="adds" type="number" min="0" max="10" step="0.1" value="1">
+              </label>
+              <label class="settings-field" for="wRank">
+                <span>L7 rank</span>
+                <input id="wRank" data-free-w="rank_l7" type="number" min="0" max="10" step="0.1" value="1">
+              </label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="panel settings-panel" data-tab-panel="decisions" role="tabpanel" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Decisions &amp; analytics</h2>
+              <p class="panel-sub">Streaming, FA ranking, category leaders</p>
+            </div>
+          </div>
+          <div class="settings-grid-2">
+            <label class="settings-field" for="streamTop">
+              <span>Streaming top N</span>
+              <input id="streamTop" name="streaming_top_n" type="number" min="1" max="50" step="1" value="10">
+              <span class="settings-hint">How many stream targets to list.</span>
+            </label>
+            <label class="settings-field" for="faLimit">
+              <span>FA ranking limit</span>
+              <input id="faLimit" name="fa_ranking_limit" type="number" min="5" max="100" step="1" value="25">
+              <span class="settings-hint">Custom FA table size on Decisions.</span>
+            </label>
+            <label class="settings-field" for="analyticsTop">
+              <span>Analytics top N</span>
+              <input id="analyticsTop" name="analytics_top_n" type="number" min="3" max="15" step="1" value="5">
+              <span class="settings-hint">Leaders per category / MVP lists.</span>
+            </label>
+          </div>
+          <fieldset class="settings-weights">
+            <legend>Default FA category weights</legend>
+            <p class="settings-note">Used when there is no live weak-cat signal (fallback). Decisions page query weights still override.</p>
+            <div class="settings-grid-cats">
+              <label class="settings-field" for="faFg"><span>FG%</span><input id="faFg" data-fa-w="fg_pct" type="number" min="0" max="5" step="0.1" value="0.8"></label>
+              <label class="settings-field" for="faFt"><span>FT%</span><input id="faFt" data-fa-w="ft_pct" type="number" min="0" max="5" step="0.1" value="0.8"></label>
+              <label class="settings-field" for="fa3"><span>3PTM</span><input id="fa3" data-fa-w="threes" type="number" min="0" max="5" step="0.1" value="1"></label>
+              <label class="settings-field" for="faPts"><span>PTS</span><input id="faPts" data-fa-w="pts" type="number" min="0" max="5" step="0.1" value="0.6"></label>
+              <label class="settings-field" for="faReb"><span>REB</span><input id="faReb" data-fa-w="reb" type="number" min="0" max="5" step="0.1" value="1"></label>
+              <label class="settings-field" for="faAst"><span>AST</span><input id="faAst" data-fa-w="ast" type="number" min="0" max="5" step="0.1" value="0.8"></label>
+              <label class="settings-field" for="faStl"><span>ST</span><input id="faStl" data-fa-w="stl" type="number" min="0" max="5" step="0.1" value="1"></label>
+              <label class="settings-field" for="faBlk"><span>BLK</span><input id="faBlk" data-fa-w="blk" type="number" min="0" max="5" step="0.1" value="1"></label>
+              <label class="settings-field" for="faTov"><span>TO</span><input id="faTov" data-fa-w="tov" type="number" min="0" max="5" step="0.1" value="0.5"></label>
+            </div>
+          </fieldset>
+        </section>
+
+        <section class="panel settings-panel" data-tab-panel="tech" role="tabpanel" hidden>
+          <div class="panel-head">
+            <div>
+              <h2>Technical</h2>
+              <p class="panel-sub">Chrome debug &amp; scrape timing</p>
+            </div>
+          </div>
+          <label class="settings-field" for="chromeDbg">
+            <span>Chrome debugger address</span>
+            <input id="chromeDbg" name="chrome_debugger_address" type="text" placeholder="127.0.0.1:9222" autocomplete="off">
+            <span class="settings-hint">Must match <code>start_chrome_debug.bat</code> / remote debugging port.</span>
+          </label>
+          <label class="settings-field" for="pageWait">
+            <span>Page load wait (sec)</span>
+            <input id="pageWait" name="page_load_wait_sec" type="number" min="1" max="30" step="0.5" value="4">
+            <span class="settings-hint">Pause after Yahoo page loads before scraping. Typical 3–6.</span>
+          </label>
+        </section>
+      </form>
+
+      <section class="panel settings-panel" data-tab-panel="database" role="tabpanel" hidden>
         <div class="panel-head">
           <div>
             <h2>Player database</h2>
@@ -107,8 +222,8 @@
           </div>
         </div>
         <p class="settings-note">
-          This permanently deletes all saved players, news, game logs, and depth charts from
-          <code>data/players.db</code>. Yahoo league data is not affected.
+          Permanently deletes all saved players, news, game logs, and depth charts from
+          <code>data/players.db</code>. Yahoo league JSON is not affected.
         </p>
         <div class="settings-actions">
           <button type="button" class="btn danger" id="btnClearDb">
@@ -119,6 +234,6 @@
       </section>
     </main>
   </div>
-  <script src="{{ url_for('static', filename='js/settings.js') }}?v=27"></script>
+  <script src="{{ url_for('static', filename='js/settings.js') }}?v=29"></script>
 </body>
 </html>

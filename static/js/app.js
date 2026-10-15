@@ -3,18 +3,11 @@
 
   const alertEl = $("#alert");
   const btnSync = $("#btnSync");
-  const btnLabel = btnSync.querySelector(".btn-label");
-  const btnSpinner = btnSync.querySelector(".btn-spinner");
 
   function showAlert(msg) {
+    if (!alertEl) return;
     alertEl.hidden = !msg;
     alertEl.textContent = msg || "";
-  }
-
-  function setSyncing(on) {
-    btnSync.disabled = on;
-    btnLabel.textContent = on ? "Refreshing…" : "Refresh";
-    btnSpinner.hidden = !on;
   }
 
   function sleep(ms) {
@@ -817,61 +810,12 @@
     }
   }
 
-  async function syncNow() {
-    setSyncing(true);
-    showAlert("");
-    try {
-      const res = await fetch("/api/sync", { method: "POST" });
-      const data = await res.json();
-      if (!data.ok) {
-        showAlert(data.error || "Sync failed.");
-        hideJobBar();
-        return;
-      }
-      const jobId = data.job?.id || data.job_id;
-      if (jobId) {
-        const job = await pollJob(jobId);
-        if (job.status === "cancelled") {
-          showAlert("Refresh cancelled.");
-        } else {
-          showAlert(summarizeResult(job.result));
-        }
-      }
-      await loadDashboard();
-    } catch (err) {
-      showAlert(String(err));
-    } finally {
-      setSyncing(false);
-      window.setTimeout(() => {
-        if (!$("#btnSync")?.disabled) hideJobBar();
-      }, 8000);
+  function openMorningRefresh() {
+    if (window.GlobalRefresh?.open) {
+      window.GlobalRefresh.open();
+      return;
     }
-  }
-
-  async function resumeActiveJobIfAny() {
-    try {
-      const data = await (await fetch("/api/jobs/active")).json();
-      if (
-        data.job &&
-        (data.job.status === "running" ||
-          data.job.status === "queued" ||
-          data.job.status === "paused")
-      ) {
-        setSyncing(true);
-        showJobBar(data.job);
-        const job = await pollJob(data.job.id);
-        if (job.status === "cancelled") {
-          showAlert("Refresh cancelled.");
-        } else {
-          showAlert(summarizeResult(job.result));
-        }
-        await loadDashboard();
-      }
-    } catch (_) {
-      /* ignore */
-    } finally {
-      setSyncing(false);
-    }
+    showAlert("Refresh UI not loaded — reload the page.");
   }
 
   window.PlayerDetail?.init({
@@ -880,9 +824,10 @@
     onFavouriteChange: () => {},
   });
 
-  btnSync.addEventListener("click", syncNow);
-  $("#btnPauseResume")?.addEventListener("click", togglePauseResume);
-  $("#btnCancelJob")?.addEventListener("click", cancelActiveJob);
+  btnSync?.addEventListener("click", openMorningRefresh);
+  window.addEventListener("yahoonba:main-refresh-done", () => {
+    loadDashboard().catch(() => {});
+  });
   $("#btnMatchupPrev")?.addEventListener("click", () => {
     showScheduleAt(matchupState.index - 1);
   });
@@ -905,5 +850,5 @@
     if (e.key === "Escape" && !$("#scheduleModal")?.hidden) closeScheduleModal();
   });
 
-  loadDashboard().then(resumeActiveJobIfAny);
+  loadDashboard().catch((err) => showAlert(String(err)));
 })();

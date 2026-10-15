@@ -7,6 +7,26 @@
         <p class="panel-sub" id="detailMeta">—</p>
       </div>
       <div class="actions">
+        <a
+          id="btnYahooPlayer"
+          class="btn tiny ghost yahoo-row-btn"
+          href="#"
+          data-league-id="{{ league_id }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open on Yahoo"
+          aria-label="Open on Yahoo"
+          hidden
+        >
+          <img
+            class="icon-yahoo"
+            src="https://s.yimg.com/cv/apiv2/sports/logo/app-icon-60x60.jpg"
+            alt=""
+            width="13"
+            height="13"
+            decoding="async"
+          >
+        </a>
         <button type="button" class="btn ghost tiny fav-btn" id="btnFavPlayer" aria-pressed="false" title="Add to watchlist">☆ Watchlist</button>
         <button type="button" class="btn danger tiny" id="btnDeletePlayer">Delete</button>
         <button type="button" class="btn ghost" id="btnCloseDetail" data-close-modal>Close</button>
